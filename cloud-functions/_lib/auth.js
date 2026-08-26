@@ -16,7 +16,7 @@ export function publicOrigin(request, env) {
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0].trim();
   const host = forwardedHost || request.headers.get("host");
   if (host?.toLowerCase() === "images.6143443.xyz") return "https://images.6143443.xyz";
-  return new URL(request.url).origin.replace(/\/+$/, "");
+  return "https://images.6143443.xyz";
 }
 async function key(env) {
   const config = runtimeEnv(env);
