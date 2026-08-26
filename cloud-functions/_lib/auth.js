@@ -10,6 +10,10 @@ const bytes = (text) => {
 };
 
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
+export function publicOrigin(request, env) {
+  const configured = runtimeEnv(env).PUBLIC_BASE_URL;
+  return (configured || new URL(request.url).origin).replace(/\/+$/, "");
+}
 async function key(env) {
   const config = runtimeEnv(env);
   if (!config.SESSION_SECRET) throw new Error("SESSION_SECRET 未配置");
