@@ -7,7 +7,7 @@
 在本目录执行：
 
 ```bash
-./upload-image.sh /path/to/image.png
+bash upload-image.sh /path/to/image.png
 ```
 
 脚本会把图片归档到 `images/YYYY/MM/`，通过当前登录的 `gh` 上传到 GitHub，然后输出可直接粘贴的 Markdown 链接。
@@ -15,7 +15,7 @@
 也支持一次上传多张图片：
 
 ```bash
-./upload-image.sh image-1.png image-2.jpg
+bash upload-image.sh image-1.png image-2.jpg
 ```
 
 ## 链接格式
