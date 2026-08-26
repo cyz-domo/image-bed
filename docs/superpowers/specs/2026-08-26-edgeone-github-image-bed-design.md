@@ -6,10 +6,10 @@
 
 ## 方案
 
-采用单个 EdgeOne 项目承载静态前端和 Edge Function：
+采用单个 EdgeOne Makers 项目承载静态前端和 Cloud Function：
 
 - 前端：登录按钮、图片选择/拖拽、预览、上传状态、结果复制。
-- Edge Function：GitHub OAuth 登录、Session Cookie、身份校验、图片校验和 GitHub Contents API 调用。
+- Cloud Function：GitHub OAuth 登录、Session Cookie、身份校验、图片校验和 GitHub Contents API 调用。
 - GitHub App：新建专用 App，只安装到 `image-bed`，使用 Contents 写权限；不使用权限范围更大的 OAuth App `public_repo`。
 - GitHub 仓库：保存 `images/YYYY/MM/` 下的图片。
 - jsDelivr：通过 `https://cdn.jsdelivr.net/gh/cyz-domo/image-bed@main/...` 分发图片。

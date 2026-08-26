@@ -53,3 +53,26 @@ npm run check
 ```
 
 Makers 的函数入口采用 `onRequest(context)`，当前代码已从 `context.env` 读取环境变量，路由对应 `cloud-functions/api/` 下的文件。
+
+## EdgeOne CLI 本地开发
+
+```bash
+npm install -g edgeone
+edgeone login
+edgeone whoami
+edgeone makers link
+edgeone makers dev
+```
+
+本地服务默认地址为 `http://localhost:8088/`。开发完成后可使用：
+
+```bash
+edgeone makers deploy
+```
+
+如果当前环境不能打开登录浏览器，可以在控制台创建 API Token 后使用：
+
+```bash
+edgeone makers dev -t "$EDGEONE_API_TOKEN"
+edgeone makers deploy -t "$EDGEONE_API_TOKEN"
+```
