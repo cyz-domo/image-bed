@@ -10,12 +10,11 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-remote_url="$(git remote get-url origin)"
-if [[ "$remote_url" =~ github\.com[:/]([^/]+)/([^/.]+)(\.git)?$ ]]; then
-  owner="${BASH_REMATCH[1]}"
-  repo="${BASH_REMATCH[2]}"
-else
-  printf '无法从 origin 解析 GitHub 仓库地址。\n' >&2
+owner="cyz-domo"
+repo="image-bed"
+
+if ! gh auth status >/dev/null 2>&1; then
+  printf 'gh 未登录，请先执行: gh auth login\n' >&2
   exit 1
 fi
 
@@ -42,16 +41,16 @@ for source in "$@"; do
 
   cp "$source" "$target"
   relative_path="${target#./}"
+  encoded="$(base64 < "$target" | tr -d '\n')"
+  gh api "repos/$owner/$repo/contents/$relative_path" --method PUT \
+    -f message="chore: upload $filename" \
+    -f content="$encoded" \
+    -f branch=main >/dev/null
   urls+=("https://cdn.jsdelivr.net/gh/$owner/$repo@main/$relative_path")
 done
-
-git add "$target_dir"
-git commit -m "chore: add uploaded image(s)"
-git push origin main
 
 printf '\n上传完成:\n'
 for url in "${urls[@]}"; do
   printf '%s\n' "$url"
   printf '![image](%s)\n' "$url"
 done
-
