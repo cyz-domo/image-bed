@@ -45,6 +45,18 @@ https://cdn.jsdelivr.net/gh/cyz-domo/image-bed@main/images/YYYY/MM/filename.png
 7. Functions 选择支持 Node.js 依赖的 Cloud Functions 运行时，并启用根目录下的 `cloud-functions/` 文件系统路由。不要选择不支持 `sharp` 的纯 Edge Functions 运行时。
 8. 在 Makers 的环境变量/密钥配置中逐项填入 `.env.example`，然后点击开始部署。
 
+GitHub App 安装完成后，可在本地查询 Installation ID（不会输出私钥）：
+
+```bash
+edgeone makers env set GITHUB_APP_INSTALLATION_ID "安装页面 URL 中的数字 ID"
+```
+
+`GITHUB_APP_PRIVATE_KEY` 必须填写 `.pem` 文件的完整内容，包括 `BEGIN PRIVATE KEY` 和 `END PRIVATE KEY`，不能填写本地文件路径。`SESSION_SECRET` 可用以下命令生成后保存到 Makers 环境变量：
+
+```bash
+openssl rand -hex 32
+```
+
 本地检查：
 
 ```bash
