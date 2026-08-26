@@ -29,3 +29,24 @@ https://cdn.jsdelivr.net/gh/cyz-domo/image-bed@main/images/YYYY/MM/filename.png
 - 仓库必须保持公开，jsDelivr 才能正常读取。
 - 图片更新后，jsDelivr 可能会短暂缓存旧内容；建议使用新文件名，或等待缓存刷新。
 - 不要上传敏感信息、个人证件或不适合公开传播的内容。
+
+## EdgeOne Pages 网页版
+
+项目包含 EdgeOne Pages 前端和 `functions/` API：未登录用户可以查看历史链接，只有 `cyz-domo` 可以上传。普通 PNG/JPEG/WebP 会在服务端缩放并转为 WebP，GIF 保留原格式。
+
+部署前需要：
+
+1. 创建 GitHub App，并只安装到 `cyz-domo/image-bed`。
+2. 为 App 开启用户授权，回调地址设置为 `https://你的 EdgeOne 域名/api/auth/callback`。
+3. 给 App 的 Repository permissions 授予 `Contents: Read and write`。
+4. 在 EdgeOne 项目配置 `.env.example` 中的环境变量；私钥只放环境变量，不提交到仓库。
+5. 将本仓库作为 Pages 项目部署，并启用 `functions/` 的函数路由。
+
+本地检查：
+
+```bash
+npm install
+npm run check
+```
+
+EdgeOne 的具体函数入口配置以控制台当前运行时选项为准；如果控制台要求指定函数目录，选择仓库根目录下的 `functions/`。
