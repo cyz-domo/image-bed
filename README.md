@@ -10,7 +10,7 @@
 ./upload-image.sh /path/to/image.png
 ```
 
-脚本会把图片归档到 `images/YYYY/MM/`，提交并推送到 GitHub，然后输出可直接粘贴的 Markdown 链接。
+脚本会把图片归档到 `images/YYYY/MM/`，通过当前登录的 `gh` 上传到 GitHub，然后输出可直接粘贴的 Markdown 链接。
 
 也支持一次上传多张图片：
 
@@ -29,4 +29,3 @@ https://cdn.jsdelivr.net/gh/cyz-domo/image-bed@main/images/YYYY/MM/filename.png
 - 仓库必须保持公开，jsDelivr 才能正常读取。
 - 图片更新后，jsDelivr 可能会短暂缓存旧内容；建议使用新文件名，或等待缓存刷新。
 - 不要上传敏感信息、个人证件或不适合公开传播的内容。
-
