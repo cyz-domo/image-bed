@@ -17,6 +17,10 @@ if ! gh auth status >/dev/null 2>&1; then
   printf 'gh 未登录，请先执行: gh auth login\n' >&2
   exit 1
 fi
+if ! command -v jq >/dev/null 2>&1; then
+  printf '缺少 jq，请先安装 jq。\n' >&2
+  exit 1
+fi
 
 year="$(date +%Y)"
 month="$(date +%m)"
@@ -30,22 +34,31 @@ for source in "$@"; do
     exit 1
   fi
 
-  filename="$(basename "$source")"
+  original_filename="$(basename "$source")"
+  extension=""
+  [[ "$original_filename" == *.* ]] && extension=".${original_filename##*.}"
+  filename="$(date +%Y%m%d%H%M%S)-$(openssl rand -hex 4)$extension"
   target="$target_dir/$filename"
   if [[ -e "$target" ]]; then
-    stem="${filename%.*}"
-    extension=""
-    [[ "$filename" == *.* ]] && extension=".${filename##*.}"
-    target="$target_dir/${stem}-$(date +%H%M%S)-$$$extension"
+    filename="$(date +%Y%m%d%H%M%S)-$(openssl rand -hex 8)$extension"
+    target="$target_dir/$filename"
   fi
 
   cp "$source" "$target"
   relative_path="${target#./}"
-  encoded="$(base64 < "$target" | tr -d '\n')"
+  encoded_file="$(mktemp)"
+  payload_file="$(mktemp)"
+  trap 'rm -f "$encoded_file" "$payload_file"' EXIT
+  base64 < "$target" | tr -d '\n' > "$encoded_file"
+  jq -n \
+    --arg message "chore: upload $filename" \
+    --rawfile content "$encoded_file" \
+    --arg branch main \
+    '{message: $message, content: ($content | rtrimstr("\n")), branch: $branch}' > "$payload_file"
   gh api "repos/$owner/$repo/contents/$relative_path" --method PUT \
-    -f message="chore: upload $filename" \
-    -f content="$encoded" \
-    -f branch=main >/dev/null
+    --input "$payload_file" >/dev/null
+  rm -f "$encoded_file" "$payload_file"
+  trap - EXIT
   urls+=("https://cdn.jsdelivr.net/gh/$owner/$repo@main/$relative_path")
 done
 
