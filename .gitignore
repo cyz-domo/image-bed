@@ -6,3 +6,12 @@ node_modules/
 *.psd
 *.sketch
 
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+
+# Never commit GitHub App private keys or local upload copies.
+*.private-key.pem
+images/
