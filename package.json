@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "python3 -m http.server 3000",
+    "dev": "python3 -m http.server",
     "check": "node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js"
   },
   "dependencies": {
