@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check functions/api/auth/login.js && node --check functions/api/auth/callback.js && node --check functions/api/auth/me.js && node --check functions/api/auth/logout.js && node --check functions/api/history.js && node --check functions/api/upload.js"
+    "dev": "python3 -m http.server 3000",
+    "check": "node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js"
   },
   "dependencies": {
     "sharp": "^0.33.5"
   }
 }
-
