@@ -51,10 +51,14 @@ GitHub App 安装完成后，可在本地查询 Installation ID（不会输出�
 edgeone makers env set GITHUB_APP_INSTALLATION_ID "安装页面 URL 中的数字 ID"
 ```
 
-`GITHUB_APP_PRIVATE_KEY` 必须填写 `.pem` 文件的完整内容，包括 `BEGIN PRIVATE KEY` 和 `END PRIVATE KEY`，不能填写本地文件路径。`SESSION_SECRET` 可用以下命令生成后保存到 Makers 环境变量：
+推荐把 `.pem` 文件转成单行 Base64 后设置 `GITHUB_APP_PRIVATE_KEY_B64`，避免控制台多行输入被拆分；不能填写本地文件路径。`SESSION_SECRET` 可用以下命令生成后保存到 Makers 环境变量：
 
 ```bash
 openssl rand -hex 32
+```
+
+```bash
+base64 < image-bed.2026-08-25.private-key.pem | tr -d '\n'
 ```
 
 本地检查：
