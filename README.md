@@ -40,7 +40,10 @@ https://cdn.jsdelivr.net/gh/cyz-domo/image-bed@main/images/YYYY/MM/filename.png
 2. 为 App 开启用户授权，回调地址设置为 `https://你的 EdgeOne 域名/api/auth/callback`。
 3. 给 App 的 Repository permissions 授予 `Contents: Read and write`。
 4. 在 EdgeOne 项目配置 `.env.example` 中的环境变量；私钥只放环境变量，不提交到仓库。
-5. 将本仓库作为 Pages 项目部署，并启用 `functions/` 的函数路由。
+5. 在 EdgeOne Makers 创建项目，关联本仓库的 `main` 分支。
+6. 构建命令填写 `npm ci`，构建输出目录填写项目根目录（`.`）；项目没有前端打包步骤。
+7. Functions 选择支持 Node.js 依赖的 Cloud Functions 运行时，并启用根目录下的 `functions/` 文件系统路由。不要选择不支持 `sharp` 的纯 Edge Functions 运行时。
+8. 在 Makers 的环境变量/密钥配置中逐项填入 `.env.example`，然后点击开始部署。
 
 本地检查：
 
@@ -49,4 +52,4 @@ npm install
 npm run check
 ```
 
-EdgeOne 的具体函数入口配置以控制台当前运行时选项为准；如果控制台要求指定函数目录，选择仓库根目录下的 `functions/`。
+Makers 的函数入口采用 `onRequest(context)`，当前代码已从 `context.env` 读取环境变量，路由对应 `functions/api/` 下的文件。
