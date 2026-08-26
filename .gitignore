@@ -12,6 +12,6 @@ node_modules/
 .edgeone/*
 .tef_dist/*
 
-# Never commit GitHub App private keys or local upload copies.
-*.private-key.pem
+# Never commit or deploy GitHub App private keys or local upload copies.
+*.pem
 images/
