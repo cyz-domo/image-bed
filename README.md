@@ -53,6 +53,8 @@ edgeone makers env set GITHUB_APP_INSTALLATION_ID "安装页面 URL 中的数字
 
 推荐把 `.pem` 文件转成单行 Base64 后设置 `GITHUB_APP_PRIVATE_KEY_B64`，避免控制台多行输入被拆分；不能填写本地文件路径。`SESSION_SECRET` 可用以下命令生成后保存到 Makers 环境变量：
 
+如果平台限制单个变量长度，则将 Base64 按顺序拆到 `GITHUB_APP_PRIVATE_KEY_B64_1` 和 `GITHUB_APP_PRIVATE_KEY_B64_2`，服务端会自动拼接。
+
 ```bash
 openssl rand -hex 32
 ```
