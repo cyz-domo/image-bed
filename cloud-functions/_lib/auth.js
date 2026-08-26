@@ -12,7 +12,11 @@ const bytes = (text) => {
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 export function publicOrigin(request, env) {
   const configured = runtimeEnv(env).PUBLIC_BASE_URL;
-  return (configured || new URL(request.url).origin).replace(/\/+$/, "");
+  if (configured) return configured.replace(/\/+$/, "");
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0].trim();
+  const host = forwardedHost || request.headers.get("host");
+  if (host?.toLowerCase() === "images.6143443.xyz") return "https://images.6143443.xyz";
+  return new URL(request.url).origin.replace(/\/+$/, "");
 }
 async function key(env) {
   const config = runtimeEnv(env);
