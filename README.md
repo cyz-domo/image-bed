@@ -60,8 +60,10 @@ openssl rand -hex 32
 ```
 
 ```bash
-base64 < image-bed.2026-08-25.private-key.pem | tr -d '\n'
+awk '!/BEGIN|END/{printf "%s", $0}' image-bed.2026-08-25.private-key.pem
 ```
+
+这里写入的是 PEM 中间的 DER Base64 内容，不要对整个 `-----BEGIN...-----` 文件再次执行 `base64`。
 
 本地检查：
 
