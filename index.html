@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>image-bed</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div>
+          <p class="eyebrow">GITHUB + JSDELIVR</p>
+          <h1>个人图床</h1>
+          <p class="subtle">图片公开存储，登录后上传；历史链接公开可查。</p>
+        </div>
+        <div id="account" class="account"></div>
+      </header>
+
+      <section id="upload-panel" class="panel hidden">
+        <div class="panel-title"><h2>上传图片</h2><span>最大 10 MB</span></div>
+        <label id="dropzone" class="dropzone" for="file-input">
+          <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
+          <strong>点击选择或拖拽图片到这里</strong>
+          <span>PNG、JPG、GIF、WebP；普通图片会转为 WebP</span>
+        </label>
+        <div id="upload-status" class="status"></div>
+        <div id="upload-results" class="results"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h2>历史上传链接</h2><button id="refresh" class="link-button">刷新</button></div>
+        <div id="history" class="history"><p class="subtle">正在加载……</p></div>
+        <div class="pager"><button id="previous" disabled>上一页</button><span id="page-label">第 1 页</span><button id="next">下一页</button></div>
+      </section>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
+

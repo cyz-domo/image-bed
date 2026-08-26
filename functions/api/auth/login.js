@@ -1,0 +1,4 @@
+import { cookie } from "../../_lib/http.js";
+const b64 = (bytes) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+export async function onRequest({ request }) { const state = b64(crypto.getRandomValues(new Uint8Array(24))); const url = new URL(request.url); const redirect = `${url.origin}/api/auth/callback`; const authorize = new URL("https://github.com/login/oauth/authorize"); authorize.searchParams.set("client_id", process.env.GITHUB_APP_CLIENT_ID); authorize.searchParams.set("redirect_uri", redirect); authorize.searchParams.set("scope", "read:user"); authorize.searchParams.set("state", state); return new Response(null, { status: 302, headers: { Location: authorize, "Set-Cookie": cookie("oauth_state", state, { maxAge: 600, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }) } }); }
+

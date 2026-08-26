@@ -1,0 +1,12 @@
+{
+  "name": "image-bed-pages",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check functions/api/auth/login.js && node --check functions/api/auth/callback.js && node --check functions/api/auth/me.js && node --check functions/api/auth/logout.js && node --check functions/api/history.js && node --check functions/api/upload.js"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
+}
+
