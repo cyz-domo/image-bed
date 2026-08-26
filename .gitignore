@@ -1,0 +1,8 @@
+.DS_Store
+.venv/
+node_modules/
+
+# Keep local source files out of the repository root.
+*.psd
+*.sketch
+
