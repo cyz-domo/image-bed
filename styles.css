@@ -60,6 +60,16 @@ body.has-hero .dropzone { background: rgba(255, 255, 255, 0.7); }
 .settings[open] summary { margin-bottom: 16px; }
 .settings-actions { display: flex; gap: 10px; }
 
+/* ---------- 设置齿轮与下拉面板 ---------- */
+.gear { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-secondary); cursor: pointer; transition: color var(--speed) ease-out, border-color var(--speed) ease-out; }
+.gear:hover { color: var(--text); border-color: var(--border-strong); }
+.gear.hidden { display: none; }
+.settings-pop { position: fixed; top: 64px; right: 24px; z-index: 40; width: 320px; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.settings-pop.hidden { display: none; }
+.settings-pop h3 { margin: 0 0 16px; font-size: 14px; font-weight: 600; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.settings-pop .settings-actions { margin-top: 4px; }
+
 /* ---------- 控件 ---------- */
 button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; cursor: pointer; transition: background var(--speed) ease-out, border-color var(--speed) ease-out, color var(--speed) ease-out; }
 .primary-button { display: inline-block; border: 1px solid var(--accent); background: var(--accent); padding: 8px 16px; color: #fff; font-size: 14px; font-weight: 500; text-decoration: none; text-align: center; }

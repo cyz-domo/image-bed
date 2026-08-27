@@ -18,14 +18,15 @@ export async function onRequest({ request, env }) {
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
     if (!state) await updateState(() => {}, env);
-    const limit = Number(env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
+    // 限额：设置里的值优先，环境变量做默认
+    const limit = Number(state.settings?.daily_upload_limit || env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     const used = state?.daily?.key === new Date().toISOString().slice(0, 10) ? state.daily.count : 0;
     if (used >= limit) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
     const remaining = limit - used;
+    const maxBytes = Math.round(Number(state.settings?.max_file_mb || env.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
 
-    // 该平台并发请求可能出现请求体被复用消费的竞态；识别后让前端重试
     let form; try { form = await request.formData(); } catch (cause) { if (String(cause.message).includes("already been read")) return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503); throw cause; }
-    const file = form.get("file"); if (!file || typeof file.arrayBuffer !== "function") return error("FILE_REQUIRED", "请选择图片", 400); if (file.size > Number(env.MAX_FILE_SIZE || defaultMaxBytes)) return error("FILE_TOO_LARGE", "图片不能超过 10 MB", 413);
+    const file = form.get("file"); if (!file || typeof file.arrayBuffer !== "function") return error("FILE_REQUIRED", "请选择图片", 400); if (file.size > maxBytes) return error("FILE_TOO_LARGE", `图片不能超过 ${Math.round(maxBytes / 1048576)} MB`, 413);
     const source = new Uint8Array(await file.arrayBuffer()); const sniffed = sniff(source); if (!sniffed) return error("FILE_SIGNATURE_INVALID", "文件内容不是有效图片（支持 PNG、JPG、GIF、WebP）", 400);
     let output = source; let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : "webp"; let outputType = sniffed;
     if (sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }

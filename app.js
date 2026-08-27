@@ -26,10 +26,10 @@ async function loadAccount() {
       account.innerHTML = `<span class="account-name">@${escapeHtml(data.login)}</span><button id="logout" class="ghost-button">退出</button>`;
       $("upload-cta").classList.add("hidden");
       $("upload-panel").classList.remove("hidden");
-      $("settings").classList.remove("hidden");
       $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
+      $("settings-gear").classList.remove("hidden");
       loadSettings();
-      if (state.tab === "gallery" && $("gallery-login").classList.contains("hidden") === false) { $("gallery-login").classList.add("hidden"); loadGallery(); }
+      if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
     } else {
       account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
     }
@@ -58,17 +58,25 @@ async function loadHero() {
 async function loadSettings() {
   try {
     const data = await api("/api/settings");
-    $("setting-hero-url").value = data.settings.hero_background_url || "";
+    const s = data.settings || {};
+    $("setting-hero-url").value = s.hero_background_url || "";
+    $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
+    $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
+    const hint = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
+    $("dropzone-hint").textContent = hint;
   } catch { /* 设置读取失败不阻断页面 */ }
 }
 
 async function saveSettings() {
   const errorEl = $("setting-hero-error"); errorEl.hidden = true;
-  const value = $("setting-hero-url").value.trim();
-  if (value && !/^https:\/\//.test(value)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; return; }
+  const heroUrl = $("setting-hero-url").value.trim();
+  if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; return; }
   try {
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: value }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
     applyHero(data.settings.hero_background_url || null);
+    $("setting-daily-limit").value = data.settings.daily_upload_limit;
+    $("setting-max-size").value = data.settings.max_file_mb;
+    $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
   } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; }
 }
 
@@ -257,6 +265,8 @@ $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
+$("settings-gear").onclick = (event) => { event.stopPropagation(); $("settings-panel").classList.toggle("hidden"); };
+document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && event.target !== $("settings-gear")) $("settings-panel").classList.add("hidden"); });
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
 $("next").onclick = () => { state.page += 1; loadGallery(); };
 
