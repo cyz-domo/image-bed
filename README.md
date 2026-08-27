@@ -2,8 +2,9 @@
 
 个人图床：网页上传，图片存到 GitHub 仓库，通过 [jsDelivr](https://www.jsdelivr.com/) CDN 公开访问。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），自定义域名 `images.6143443.xyz`。
 
-- **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传）
+- **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持在图片库删除已传图片
 - **查看**：公开。任何人不登录也能访问图片链接和图片库
+- **会话**：HMAC 签名 cookie，有效期 24 小时；退出登录时服务端吊销会话（吊销名单存仓库 `.state/state.json`），丢过的 cookie 无法再登入
 - **处理**：PNG/JPEG/WebP 在服务端缩放（最长边 ≤2560）并转 WebP；GIF 保留原格式；按文件真实字节校验格式（扩展名不符的图也能传）
 
 ## 站点结构
@@ -13,11 +14,13 @@ index.html / app.js / styles.css   纯静态前端（无框架、无构建）
   ├─ 首页标签：背景图 + 站点说明 + 上传面板（登录后显示）/ 登录引导（未登录显示）
   └─ 图片库标签：已上传图片网格，点击大图查看、一键复制链接
 cloud-functions/
-  ├─ _lib/auth.js   会话签发/校验（HMAC cookie）、GitHub App JWT、安装令牌
-  ├─ _lib/http.js   JSON 响应（默认 no-store）、cookie 工具
+  ├─ _lib/auth.js   会话签发/校验/吊销（HMAC cookie）、GitHub App JWT
+  ├─ _lib/github.js GitHub API 封装 + 安装令牌缓存（45 分钟）
+  ├─ _lib/state.js  仓库内状态文件 .state/state.json：会话吊销名单、每日上传计数
   └─ api/
-      ├─ auth/login|callback|me|logout.js   GitHub OAuth 登录流程
-      ├─ upload.js     校验 → sharp 压缩转 WebP → GitHub Contents API 写入
+      ├─ auth/login|callback|me|logout.js   GitHub OAuth 登录流程（退出即吊销）
+      ├─ upload.js     限额检查 → 字节嗅探 → sharp 压缩转 WebP → GitHub 写入
+      ├─ delete.js     删除已上传图片（仅 images/ 路径，需登录）
       ├─ history.js    读仓库 git tree，列出 images/ 下的图片（内存缓存 5 分钟）
       └─ health.js     健康检查
 ```
@@ -38,6 +41,7 @@ cloud-functions/
 | `GITHUB_OWNER` / `GITHUB_REPO` | 图片仓库，如 `cyz-domo` / `image-bed` |
 | `ALLOWED_GITHUB_LOGIN` | 允许上传的 GitHub 用户名 |
 | `MAX_FILE_SIZE` | 上传大小上限，默认 10485760（10 MB） |
+| `DAILY_UPLOAD_LIMIT` | 每日上传张数上限，默认 100，超过后当天返回 429 |
 | `HISTORY_CACHE_TTL` | 历史列表缓存秒数，默认 300 |
 
 ### 私钥的三段式配置（重点）

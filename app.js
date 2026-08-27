@@ -12,11 +12,13 @@ async function api(path, options) {
   return body;
 }
 
+let loggedIn = false;
 async function loadAccount() {
   const account = $("account");
   try {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
+      loggedIn = true;
       account.innerHTML = `<span>@${data.login}</span><button id="logout">退出</button>`;
       $("upload-cta").classList.add("hidden");
       $("upload-panel").classList.remove("hidden");
@@ -54,7 +56,19 @@ function openLightbox(url) {
   $("lightbox-image").src = url; $("lightbox-url").textContent = url;
   $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"));
   $("lightbox-open").href = url;
+  $("lightbox-delete").style.display = loggedIn ? "" : "none";
+  $("lightbox-delete").onclick = () => deleteImage(url);
   $("lightbox").classList.remove("hidden");
+}
+async function deleteImage(url) {
+  if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
+  $("lightbox-delete").disabled = true; $("lightbox-delete").textContent = "删除中……";
+  try {
+    const path = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    $("lightbox-close").onclick(); loadGallery();
+  } catch (error) { alert(`删除失败：${error.message}`); }
+  finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
 $("lightbox-close").onclick = () => { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); };
 document.querySelector(".lightbox-backdrop").onclick = () => $("lightbox-close").onclick();

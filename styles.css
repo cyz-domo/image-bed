@@ -39,6 +39,8 @@ button, .login { border: 0; border-radius: 10px; padding: 10px 14px; color: #fff
 .card-actions { display: flex; gap: 8px; }
 .card-actions button, .lightbox-actions button, .lightbox-actions a { flex: 1; padding: 7px 10px; border-radius: 8px; font-size: 13px; text-decoration: none; text-align: center; }
 .lightbox-actions a { color: #5273d8; background: #eef2ff; }
+button.danger, .card-actions button.danger { background: #c83f53; }
+#lightbox-delete { display: none; }
 .pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 4px; }.pager button { color: #5273d8; background: #eef2ff; }
 
 .lightbox { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: center; padding: 24px; }

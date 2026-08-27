@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "python3 -m http.server",
-    "check": "node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js && node --check cloud-functions/api/health.js"
+    "check": "node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js && node --check cloud-functions/api/delete.js && node --check cloud-functions/api/health.js && node --check cloud-functions/_lib/github.js && node --check cloud-functions/_lib/state.js"
   },
   "dependencies": {
     "sharp": "^0.33.5"
