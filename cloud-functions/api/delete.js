@@ -8,6 +8,23 @@ const imagePath = /^images\/\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp)
 const encodePath = (path) => encodeURIComponent(path).replace(/%2F/g, "/");
 const MAX_BATCH = 20;
 
+// 删除单张：串行执行；409 说明分支 sha 已变化（并发提交竞争），重取 sha 重试一次
+async function deleteOne(env, path) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);
+      if (head.status === 404) return { path, ok: false, message: "不存在或已删除" };
+      if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
+      const sha = (await head.json()).sha;
+      const del = await ghApi(env, `contents/${encodePath(path)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
+      if (del.ok) return { path, ok: true };
+      if (del.status !== 409) return { path, ok: false, message: `删除失败 (${del.status})` };
+      // 409：sha 过期，循环重取
+    } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
+  }
+  return { path, ok: false, message: "删除冲突（409），请稍后重试" };
+}
+
 export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
@@ -18,16 +35,9 @@ export async function onRequest({ request, env }) {
     if (!paths.length || paths.length > MAX_BATCH) return error("PATH_INVALID", `一次最多删除 ${MAX_BATCH} 张`, 400);
     for (const path of paths) if (typeof path !== "string" || !imagePath.test(path)) return error("PATH_INVALID", `图片路径不合法: ${path}`, 400);
 
-    const results = await Promise.all(paths.map(async (path) => {
-      try {
-        const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);
-        if (head.status === 404) return { path, ok: false, message: "不存在或已删除" };
-        if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
-        const sha = (await head.json()).sha;
-        const del = await ghApi(env, `contents/${encodePath(path)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
-        return del.ok ? { path, ok: true } : { path, ok: false, message: `删除失败 (${del.status})` };
-      } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
-    }));
+    // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突
+    const results = [];
+    for (const path of paths) results.push(await deleteOne(env, path));
 
     const okPaths = results.filter((r) => r.ok).map((r) => r.path);
     if (okPaths.length) {

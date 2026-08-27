@@ -80,7 +80,7 @@ function setStatus(message, error = false) {
 async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const form = new FormData(); form.append("file", file);
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       const data = await api("/api/upload", { method: "POST", body: form });
       $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`);
@@ -89,7 +89,7 @@ async function uploadOne(file, done, total) {
       return true;
     } catch (error) {
       // 平台偶发的请求体竞态（503 UPLOAD_RETRY）自动重试
-      if (error.message.includes("自动重试") && attempt < 3) { await new Promise((resolve) => setTimeout(resolve, 400 * attempt)); continue; }
+      if (error.message.includes("重试") && attempt < 4) { await new Promise((resolve) => setTimeout(resolve, 500 * attempt)); continue; }
       $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：${escapeHtml(error.message)}</span></div>`);
       return false;
     }
