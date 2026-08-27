@@ -275,6 +275,16 @@ $("delete-selected").onclick = deleteSelected;
 
 /* ---------- 事件绑定 ---------- */
 $("file-input").onchange = (event) => { if (event.target.files.length) upload(event.target.files); };
+// 剪贴板粘贴上传：任何位置 Ctrl/Cmd+V 粘贴截图或复制的图片
+document.addEventListener("paste", (event) => {
+  if (!state.loggedIn) return;
+  const files = [...(event.clipboardData?.items || [])].filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
+  if (!files.length) return;
+  event.preventDefault();
+  switchTab("home");
+  const named = files.map((file, index) => new File([file], file.name || `剪贴板图片-${Date.now()}-${index + 1}.png`, { type: file.type }));
+  upload(named);
+});
 $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").classList.add("dragging"); };
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
