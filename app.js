@@ -131,14 +131,24 @@ function updateSelectionUi() {
 
 function renderGallery(items) {
   state.pageItems = items;
-  $("gallery").innerHTML = items.map((item) => selectMode()
-    ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-toggle="${escapeHtml(item.path)}">${selection.has(item.path) ? "取消选择" : "选择"}</button></figcaption><span class="check" aria-hidden="true"></span></figure>`
-    : `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制</button></figcaption></figure>`).join("");
+  // JS 分列瀑布流：按顺序放入当前最矮的列，保证视觉顺序从左到右
+  const columnCount = window.matchMedia("(max-width: 560px)").matches ? 1 : window.matchMedia("(max-width: 860px)").matches ? 2 : 3;
+  const columns = Array.from({ length: columnCount }, () => []);
+  const heights = new Array(columnCount).fill(0);
+  for (const item of items) {
+    const target = heights.indexOf(Math.min(...heights));
+    columns[target].push(item);
+    heights[target] += 1; // 无固定比例，用张数近似均衡
+  }
+  const card = (item) => selectMode()
+    ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}"><img loading="lazy" src="${item.url}" alt="" data-path="${escapeHtml(item.path)}" /><figcaption class="shot-overlay"><button class="ghost-button small" data-toggle="${escapeHtml(item.path)}">${selection.has(item.path) ? "取消选择" : "选择"}</button></figcaption><span class="check" aria-hidden="true"></span></figure>`
+    : `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制</button></figcaption></figure>`;
+  $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view));
   $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
   $("gallery").querySelectorAll("[data-toggle]").forEach((button) => button.onclick = () => { const path = button.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
   // 选择模式下点图片本身也可切换
-  if (selectMode()) $("gallery").querySelectorAll(".shot.selectable img").forEach((img, index) => img.onclick = () => { const path = items[index].path; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(items); updateSelectionUi(); });
+  if (selectMode()) $("gallery").querySelectorAll(".shot.selectable img").forEach((img) => img.onclick = () => { const path = img.dataset.path; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(items); updateSelectionUi(); });
   updateSelectionUi();
 }
 

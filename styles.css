@@ -103,8 +103,9 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .gallery-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
 .gallery-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
 .gallery-count { font-size: 13px; color: var(--text-secondary); }
-.masonry { columns: 3; column-gap: 16px; }
-.shot { margin: 0 0 16px; break-inside: avoid; position: relative; border-radius: 6px; overflow: hidden; }
+.masonry { display: flex; gap: 16px; align-items: flex-start; }
+.masonry-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.shot { margin: 0; break-inside: avoid; position: relative; border-radius: 6px; overflow: hidden; }
 .shot img { display: block; width: 100%; height: auto; background: #f3f4f6; transition: opacity var(--speed) ease-out; }
 .shot-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-start; gap: 8px; padding: 12px; background: rgba(17, 24, 39, 0.45); opacity: 0; transition: opacity var(--speed) ease-out; }
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity: 1; }
@@ -137,13 +138,11 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 /* ---------- 响应式 ---------- */
 @media (max-width: 860px) {
   .home-grid { grid-template-columns: 1fr; gap: 32px; }
-  .masonry { columns: 2; column-gap: 12px; }
-  .shot { margin-bottom: 12px; }
+  .masonry { gap: 12px; }
 }
 @media (max-width: 560px) {
   .container { padding: 32px 16px 64px; }
   h1 { font-size: 24px; }
-  .masonry { columns: 1; }
   .topbar-inner { padding: 0 16px; gap: 16px; }
   .account-name { display: none; }
 }
