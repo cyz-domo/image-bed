@@ -13,7 +13,15 @@ async function fetchFromGitHub(env) {
   const response = await ghApi(env, "git/trees/main?recursive=1");
   if (!response.ok) throw new Error(`GitHub tree 读取失败 (${response.status})`);
   const tree = await response.json();
-  return (tree.tree || []).filter((item) => item.type === "blob" && imagePath.test(item.path)).map((item) => ({ path: item.path, url: baseUrl(item.path, env) })).reverse();
+  // thumb: 同名缩略图存于 .thumbnails/；存量老图没有则降级用原图
+  const thumbSet = new Set((tree.tree || []).filter((item) => item.type === "blob" && item.path.startsWith(".thumbnails/")).map((item) => item.path));
+  return (tree.tree || [])
+    .filter((item) => item.type === "blob" && imagePath.test(item.path))
+    .map((item) => {
+      const thumbPath = `.thumbnails/${item.path.slice("images/".length)}`;
+      return { path: item.path, url: baseUrl(item.path, env), ...(thumbSet.has(thumbPath) ? { thumb: baseUrl(thumbPath, env) } : {}) };
+    })
+    .reverse();
 }
 
 export async function onRequest({ request, env }) {

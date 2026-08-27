@@ -10,19 +10,23 @@ const MAX_BATCH = 20;
 
 // 删除单张：串行执行；409 说明分支 sha 已变化（并发提交竞争），重取 sha 重试一次
 async function deleteOne(env, path) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);
-      if (head.status === 404) return { path, ok: false, message: "不存在或已删除" };
-      if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
-      const sha = (await head.json()).sha;
-      const del = await ghApi(env, `contents/${encodePath(path)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
-      if (del.ok) return { path, ok: true };
-      if (del.status !== 409) return { path, ok: false, message: `删除失败 (${del.status})` };
-      // 409：sha 过期，循环重取
-    } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
+  // 图片与其缩略图一起删（不存在则静默跳过）
+  const targets = [path, `.thumbnails/${path.slice("images/".length)}`];
+  for (const target of targets) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const head = await ghApi(env, `contents/${encodePath(target)}?ref=main`);
+        if (head.status === 404) break; // 缩略图可能不存在，正常
+        if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
+        const sha = (await head.json()).sha;
+        const del = await ghApi(env, `contents/${encodePath(target)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${target}`, sha, branch: "main" }) });
+        if (del.ok || del.status === 404) break;
+        if (del.status !== 409) return { path, ok: false, message: `删除失败 (${del.status})` };
+        // 409：sha 过期，循环重取
+      } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
+    }
   }
-  return { path, ok: false, message: "删除冲突（409），请稍后重试" };
+  return { path, ok: true };
 }
 
 export async function onRequest({ request, env }) {

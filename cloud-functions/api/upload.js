@@ -33,9 +33,16 @@ export async function onRequest({ request, env }) {
     if (output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
     const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${year}/${month}/${randomName(extension)}`;
     await ghApi(env, `contents/${path}`, { method: "PUT", body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, content: base64(new Uint8Array(output)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(`GitHub 写入失败 (${response.status})`); });
+    // 缩略图：长边 320、质量 70 的 WebP，存 .thumbnails/ 同构路径；失败不阻断上传
+    let thumbPath = null;
+    try {
+      const thumb = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+      thumbPath = `.thumbnails/${year}/${month}/${path.split("/").pop()}`;
+      await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(new Uint8Array(thumb)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
+    } catch { thumbPath = null; }
     await updateState((s) => bumpDailyCount(s), env).catch(() => {}); // 计数失败不阻断上传结果
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
-    await (async () => { try { const cached = await readHistoryCache(env); const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}` }; await writeHistoryCache(env, [item, ...((cached && Date.now() - cached.savedAt < 600000 && cached.items) || [])]); } catch {} })();
+    await (async () => { try { const cached = await readHistoryCache(env); const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`, ...(thumbPath ? { thumb: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${thumbPath}` } : {}) }; await writeHistoryCache(env, [item, ...((cached && Date.now() - cached.savedAt < 600000 && cached.items) || [])]); } catch {} })();
     const url = `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`;
     return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: remaining - 1 });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
