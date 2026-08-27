@@ -4,7 +4,9 @@
 
 - **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持在图片库删除已传图片
 - **查看**：公开。任何人不登录也能访问图片链接和图片库
-- **会话**：HMAC 签名 cookie，有效期 24 小时；退出登录时服务端吊销会话（吊销名单存仓库 `.state/state.json`），丢过的 cookie 无法再登入
+- **会话**：HMAC 签名 cookie，有效期 24 小时；退出登录时服务端吊销会话，丢过的 cookie 无法再登入
+- **状态存储**：优先 EdgeOne KV（绑定变量名 `IMAGE_KV`，见下文）；未绑定时回退到仓库 `.state/state.json`（会因此产生少量 `chore: update state` 提交）
+- **历史列表**：图片列表缓存在 KV 中（10 分钟），所有边缘实例共享，跨实例访问不再回源 GitHub；上传/删除会同步更新缓存。未绑定 KV 时退回单实例内存缓存
 - **处理**：PNG/JPEG/WebP 在服务端缩放（最长边 ≤2560）并转 WebP；GIF 保留原格式；按文件真实字节校验格式（扩展名不符的图也能传）
 
 ## 站点结构
@@ -16,12 +18,13 @@ index.html / app.js / styles.css   纯静态前端（无框架、无构建）
 cloud-functions/
   ├─ _lib/auth.js   会话签发/校验/吊销（HMAC cookie）、GitHub App JWT
   ├─ _lib/github.js GitHub API 封装 + 安装令牌缓存（45 分钟）
-  ├─ _lib/state.js  仓库内状态文件 .state/state.json：会话吊销名单、每日上传计数
+  ├─ _lib/state.js  状态存储：优先 KV（IMAGE_KV），回退 .state/state.json；含历史列表 KV 缓存
   └─ api/
       ├─ auth/login|callback|me|logout.js   GitHub OAuth 登录流程（退出即吊销）
       ├─ upload.js     限额检查 → 字节嗅探 → sharp 压缩转 WebP → GitHub 写入
       ├─ delete.js     删除已上传图片（仅 images/ 路径，需登录）
-      ├─ history.js    读仓库 git tree，列出 images/ 下的图片（内存缓存 5 分钟）
+      ├─ settings.js   站点设置（背景图 URL 等；GET 公开，POST 需登录）
+      ├─ history.js    图片列表（KV 共享缓存 10 分钟，未绑 KV 时回源 git tree）
       └─ health.js     健康检查
 ```
 
@@ -42,7 +45,17 @@ cloud-functions/
 | `ALLOWED_GITHUB_LOGIN` | 允许上传的 GitHub 用户名 |
 | `MAX_FILE_SIZE` | 上传大小上限，默认 10485760（10 MB） |
 | `DAILY_UPLOAD_LIMIT` | 每日上传张数上限，默认 100，超过后当天返回 429 |
-| `HISTORY_CACHE_TTL` | 历史列表缓存秒数，默认 300 |
+
+### KV 存储（推荐配置）
+
+状态数据（会话吊销名单、每日上传计数、站点设置、历史列表缓存）优先存放在 EdgeOne KV 中，未绑定 KV 时自动回退到仓库 `.state/state.json`（会在仓库产生少量 `chore: update state` 提交）。切换到 KV：
+
+1. EdgeOne 控制台 → 存储空间（KV）→ 开通账户（免费额度 1GB）；
+2. 创建 Namespace（名称随意，如 `image-bed`）；
+3. 项目详情 → KV Storage → Bind Namespace，**环境变量名必须为 `IMAGE_KV`**（代码按此名读取，未绑定或不可用时自动回退，不会报错）；
+4. 重新部署后生效。KV 为最终一致（跨节点最多延迟约 60 秒），对单人图床无感。
+
+绑定 KV 的收益：上传/退出不再产生仓库提交；历史列表在所有边缘实例间共享缓存（10 分钟），`/api/history` 冷实例也快。
 
 ### 私钥的三段式配置（重点）
 
