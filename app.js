@@ -77,9 +77,29 @@ function setStatus(message, error = false) {
   const el = $("upload-status"); el.textContent = message; el.className = `status${error ? " error" : ""}`;
 }
 
+// 上传前本地压缩：长边压到 2560、WebP 质量 0.85（浏览器不支持 WebP 编码时退 JPEG），比原文件小才采用
+async function compressForUpload(file) {
+  if (file.type === "image/gif" || file.size < 200 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    let blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.85));
+    if (!blob || blob.type !== "image/webp") blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    const extension = blob.type === "image/webp" ? ".webp" : ".jpg";
+    return new File([blob], file.name.replace(/\.\w+$/, "") + extension, { type: blob.type });
+  } catch { return file; }
+}
+
 async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
-  const form = new FormData(); form.append("file", file);
+  const payload = await compressForUpload(file);
+  if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
+  const form = new FormData(); form.append("file", payload);
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       const data = await api("/api/upload", { method: "POST", body: form });
