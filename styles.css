@@ -120,9 +120,9 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .shot-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-start; gap: 8px; padding: 12px; background: rgba(17, 24, 39, 0.45); opacity: 0; transition: opacity var(--speed) ease-out; }
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity: 1; }
 .shot.selectable { cursor: pointer; }
-.shot.selectable .shot-overlay { opacity: 1; background: rgba(17, 24, 39, 0.25); }
-.shot .check { position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.35); }
-.shot.selected .check { background: var(--accent); border-color: var(--accent); }
+.shot.selectable .check { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.15); }
+.shot.selectable .check.checked { background: var(--accent); border-color: var(--accent); }
+.shot.selectable .check.checked::after { content: ""; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .shot.selected img { outline: 2px solid var(--accent); outline-offset: -2px; }
 .result.failed .url.error { color: var(--danger); }
 .gallery-tools { margin-left: auto; display: flex; gap: 8px; }
