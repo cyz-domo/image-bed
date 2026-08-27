@@ -15,8 +15,7 @@ export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
     const form = await request.formData(); const file = form.get("file"); if (!file || typeof file.arrayBuffer !== "function") return error("FILE_REQUIRED", "请选择图片", 400); const limit = Number(env.MAX_FILE_SIZE || defaultMaxBytes); if (file.size > limit) return error("FILE_TOO_LARGE", "图片不能超过 10 MB", 413);
-    const type = file.type.toLowerCase(); if (!allowed.has(type)) return error("FILE_TYPE_NOT_ALLOWED", "只支持 PNG、JPG、GIF 和 WebP", 400);
-    const source = new Uint8Array(await file.arrayBuffer()); const sniffed = sniff(source); if (!sniffed) return error("FILE_SIGNATURE_INVALID", "文件内容不是有效图片", 400);
+    const source = new Uint8Array(await file.arrayBuffer()); const sniffed = sniff(source); if (!sniffed) return error("FILE_SIGNATURE_INVALID", "文件内容不是有效图片（支持 PNG、JPG、GIF、WebP）", 400);
     let output = source; let extension = allowed.get(sniffed); let outputType = sniffed;
     if (sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
     if (output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
