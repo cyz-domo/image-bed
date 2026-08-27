@@ -1,6 +1,6 @@
-import { readSession } from "../../_lib/auth.js";
-import { ghApi } from "../../_lib/github.js";
-import { error, json } from "../../_lib/http.js";
+import { readSession } from "../_lib/auth.js";
+import { ghApi } from "../_lib/github.js";
+import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
 const imagePath = /^images\/\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp)$/i;
