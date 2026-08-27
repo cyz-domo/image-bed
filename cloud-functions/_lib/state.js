@@ -49,5 +49,3 @@ export async function updateState(mutator) {
 export function revokeSession(state, sessionId) { if (!state.revoked.includes(sessionId)) state.revoked.push(sessionId); if (state.revoked.length > 200) state.revoked.splice(0, state.revoked.length - 200); }
 export function bumpDailyCount(state) { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; state.daily.count += 1; return state.daily.count; }
 export function setSetting(state, name, value) { state.settings = { ...state.settings, [name]: value }; }
-
-import { ghApi } from "./github.js";
