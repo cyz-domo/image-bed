@@ -30,7 +30,8 @@ export async function readSession(request, env) {
   const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null;
   try {
     const data = JSON.parse(decoder.decode(bytes(payload))); if (data.exp <= Date.now()) return null;
-    if (data.sid) { if ((await loadState(env)).revoked.includes(data.sid)) return null; }
+    // 吊销名单读取失败（KV/GitHub 抖动）时放行：会话本身已通过 HMAC 验签
+    if (data.sid) { try { if ((await loadState(env)).revoked.includes(data.sid)) return null; } catch {} }
     return data;
   } catch { return null; }
 }

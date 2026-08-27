@@ -29,6 +29,7 @@ async function loadAccount() {
       $("settings").classList.remove("hidden");
       $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
       loadSettings();
+      if (state.tab === "gallery" && $("gallery-login").classList.contains("hidden") === false) { $("gallery-login").classList.add("hidden"); loadGallery(); }
     } else {
       account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
     }
@@ -146,6 +147,11 @@ function switchTab(tab) {
   $("page-home").classList.toggle("hidden", tab !== "home");
   $("page-gallery").classList.toggle("hidden", tab !== "gallery");
   history.replaceState(null, "", tab === "home" ? "/" : "/#gallery");
+  if (tab === "gallery") {
+    // 先按当前登录态分流，未登录不发起列表请求
+    if (state.loggedIn) loadGallery();
+    else { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
+  }
 }
 for (const node of document.querySelectorAll(".nav-link")) node.onclick = () => switchTab(node.dataset.tab);
 $("empty-go").onclick = () => switchTab("home");
@@ -162,5 +168,6 @@ $("next").onclick = () => { state.page += 1; loadGallery(); };
 
 loadAccount();
 loadHero();
+// 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
+// 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
-if (location.hash === "#gallery") loadGallery();
