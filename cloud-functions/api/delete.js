@@ -1,5 +1,6 @@
 import { readSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
+import { readHistoryCache, writeHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
@@ -17,6 +18,7 @@ export async function onRequest({ request, env }) {
     const sha = (await head.json()).sha;
     const del = await ghApi(env, `contents/${encodeURIComponent(path).replace(/%2F/g, "/")}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
     if (!del.ok) return error("DELETE_FAILED", `GitHub 删除失败 (${del.status})`, 502);
+    try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => item.path !== path)); } catch {}
     return json({ ok: true, path });
   } catch (cause) { return error("DELETE_FAILED", cause.message || "删除失败", 502); }
 }

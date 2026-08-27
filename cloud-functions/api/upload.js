@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { readSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { loadState, updateState, bumpDailyCount, freshState } from "../_lib/state.js";
+import { loadState, updateState, bumpDailyCount, writeHistoryCache, readHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 const defaultMaxBytes = 10485760;
@@ -15,9 +15,9 @@ export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
-    // 确保状态文件存在（首次上传时初始化），再检查当日限额
-    let state = await loadState().catch(() => null);
-    if (!state) await updateState(() => {});
+    // 确保状态可读（KV/状态文件），再检查当日限额
+    let state = await loadState(env).catch(() => null);
+    if (!state) await updateState(() => {}, env);
     const limit = Number(env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     const used = state?.daily?.key === new Date().toISOString().slice(0, 10) ? state.daily.count : 0;
     if (used >= limit) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
@@ -30,7 +30,9 @@ export async function onRequest({ request, env }) {
     if (output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
     const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${year}/${month}/${randomName(extension)}`;
     await ghApi(env, `contents/${path}`, { method: "PUT", body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, content: base64(new Uint8Array(output)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(`GitHub 写入失败 (${response.status})`); });
-    await updateState((s) => bumpDailyCount(s)).catch(() => {}); // 计数失败不阻断上传结果
+    await updateState((s) => bumpDailyCount(s), env).catch(() => {}); // 计数失败不阻断上传结果
+    // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
+    await (async () => { try { const cached = await readHistoryCache(env); const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}` }; await writeHistoryCache(env, [item, ...((cached && Date.now() - cached.savedAt < 600000 && cached.items) || [])]); } catch {} })();
     const url = `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`;
     return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: remaining - 1 });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }

@@ -30,7 +30,7 @@ export async function readSession(request, env) {
   const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null;
   try {
     const data = JSON.parse(decoder.decode(bytes(payload))); if (data.exp <= Date.now()) return null;
-    if (data.sid) { if ((await loadState()).revoked.includes(data.sid)) return null; }
+    if (data.sid) { if ((await loadState(env)).revoked.includes(data.sid)) return null; }
     return data;
   } catch { return null; }
 }
@@ -38,6 +38,6 @@ export function sessionCookie(value) { return cookie("image_session", value, { m
 export function clearSessionCookie() { return cookie("image_session", "", { maxAge: 0, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }); }
 export function clearOauthStateCookie() { return cookie("oauth_state", "", { maxAge: 0, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }); }
 
-export async function revokeCurrentSession(request, env) { const session = await readSession(request, env); if (session?.sid) await updateState((state) => revokeSession(state, session.sid)); }
+export async function revokeCurrentSession(request, env) { const session = await readSession(request, env); if (session?.sid) await updateState((state) => revokeSession(state, session.sid), env); }
 
 export async function githubUser(code, redirectUri, env) { const config = runtimeEnv(env); const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ client_id: config.GITHUB_APP_CLIENT_ID, client_secret: config.GITHUB_APP_CLIENT_SECRET, code, redirect_uri: redirectUri }) }); if (!tokenResponse.ok) throw new Error("GitHub OAuth 换取令牌失败"); const token = (await tokenResponse.json()).access_token; if (!token) throw new Error("GitHub OAuth 未返回令牌"); const userResponse = await fetch("https://api.github.com/user", { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } }); if (!userResponse.ok) throw new Error("GitHub 用户信息获取失败"); return userResponse.json(); }
