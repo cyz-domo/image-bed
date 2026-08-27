@@ -113,12 +113,15 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .gallery-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
 .gallery-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
 .gallery-count { font-size: 13px; color: var(--text-secondary); }
+.legend { font-size: 12px; color: #9ca3af; }
 .masonry { display: flex; gap: 16px; align-items: flex-start; }
 .masonry-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .shot { margin: 0; position: relative; border-radius: 6px; overflow: hidden; }
 .shot img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; background: #f3f4f6; transition: opacity var(--speed) ease-out; }
-.shot-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-start; gap: 8px; padding: 12px; background: rgba(17, 24, 39, 0.45); opacity: 0; transition: opacity var(--speed) ease-out; }
+.shot-overlay { position: absolute; inset: auto 0 0 0; display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 8px; background: linear-gradient(transparent, rgba(17, 24, 39, 0.55)); opacity: 0; transition: opacity var(--speed) ease-out; }
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity: 1; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, 0.92); color: var(--text); cursor: pointer; transition: background var(--speed) ease-out, color var(--speed) ease-out; }
+.icon-button:hover { background: #fff; color: var(--accent); }
 .shot.selectable { cursor: pointer; }
 .shot.selectable .check { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.15); }
 .shot.selectable .check.checked { background: var(--accent); border-color: var(--accent); }

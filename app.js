@@ -231,9 +231,13 @@ function renderGallery(items) {
     columns[target].push(item);
     heights[target] += 1; // 无固定比例，用张数近似均衡
   }
+  const iconButtons = (item) => `
+    <button class="icon-button" data-view="${item.url}" data-view-path="${escapeHtml(item.path)}" title="查看大图" aria-label="查看大图"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M2.5 7V4.5A2 2 0 0 1 4.5 2.5H7M13 2.5h2.5a2 2 0 0 1 2 2V7M17.5 13v2.5a2 2 0 0 1-2 2H13M7 17.5H4.5a2 2 0 0 1-2-2V13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button class="icon-button" data-copy="${escapeHtml(item.url)}" data-copy-path="${escapeHtml(item.path)}" title="复制链接" aria-label="复制链接"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M8.5 12.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 1 0-5-5l-1.5 1.5M11.5 7.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 1 0 5 5l1.5-1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button class="icon-button" data-copy="${escapeHtml(`![image](${item.url})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><rect x="1.5" y="4.5" width="17" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 12.5v-5l2.5 3 2.5-3v5M13 7.5v5M13 12.5l-1.8-1.8M13 12.5l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   const card = (item) => selectMode()
     ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}"><img loading="lazy" src="${item.thumb || item.url}" alt="" /><span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
-    : `<figure class="shot"><img loading="lazy" src="${item.thumb || item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}" data-view-path="${escapeHtml(item.path)}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}" data-copy-path="${escapeHtml(item.path)}">复制链接</button><button class="ghost-button small" data-copy="${escapeHtml(`![image](${item.url})`)}" data-copy-path="${escapeHtml(item.path)}">复制 Markdown</button></figcaption></figure>`;
+    : `<figure class="shot"><img loading="lazy" src="${item.thumb || item.url}" alt="" /><figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view, button.dataset.viewPath));
   $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button, button.dataset.copyPath));
