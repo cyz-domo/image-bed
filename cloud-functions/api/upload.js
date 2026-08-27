@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { installationToken, readSession } from "../_lib/auth.js";
+import { readSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
 import { loadState, updateState, bumpDailyCount, freshState } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
