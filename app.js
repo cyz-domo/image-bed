@@ -170,7 +170,7 @@ function renderGallery(items) {
   }
   const card = (item) => selectMode()
     ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}"><img loading="lazy" src="${item.url}" alt="" data-path="${escapeHtml(item.path)}" /><figcaption class="shot-overlay"><button class="ghost-button small" data-toggle="${escapeHtml(item.path)}">${selection.has(item.path) ? "取消选择" : "选择"}</button></figcaption><span class="check" aria-hidden="true"></span></figure>`
-    : `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制</button></figcaption></figure>`;
+    : `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制链接</button><button class="ghost-button small" data-copy="${escapeHtml(`![image](${item.url})`)}">复制 Markdown</button></figcaption></figure>`;
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view));
   $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
@@ -218,6 +218,7 @@ async function deleteSelected() {
 function openLightbox(url) {
   $("lightbox-image").src = url; $("lightbox-url").textContent = url;
   $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"));
+  $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"));
   $("lightbox-open").href = url;
   $("lightbox-delete").style.display = state.loggedIn ? "" : "none";
   $("lightbox-delete").onclick = () => deleteImage(url);
