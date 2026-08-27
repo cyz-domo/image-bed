@@ -108,6 +108,13 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .shot img { display: block; width: 100%; height: auto; background: #f3f4f6; transition: opacity var(--speed) ease-out; }
 .shot-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-start; gap: 8px; padding: 12px; background: rgba(17, 24, 39, 0.45); opacity: 0; transition: opacity var(--speed) ease-out; }
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity: 1; }
+.shot.selectable { cursor: pointer; }
+.shot.selectable .shot-overlay { opacity: 1; background: rgba(17, 24, 39, 0.25); }
+.shot .check { position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.35); }
+.shot.selected .check { background: var(--accent); border-color: var(--accent); }
+.shot.selected img { outline: 2px solid var(--accent); outline-offset: -2px; }
+.result.failed .url.error { color: var(--danger); }
+.gallery-tools { margin-left: auto; display: flex; gap: 8px; }
 .skeleton { border-radius: 6px; background: linear-gradient(90deg, #f3f4f6 25%, #ebeef1 50%, #f3f4f6 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .empty { margin: 48px 0; text-align: left; color: var(--text-secondary); font-size: 15px; }

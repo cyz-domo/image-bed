@@ -39,10 +39,10 @@
             </div>
             <div id="upload-panel" class="card hidden">
               <label id="dropzone" class="dropzone" for="file-input">
-                <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
+                <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple />
                 <svg class="dropzone-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 13V3m0 0L6 7m4-4 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13v2.5A1.5 1.5 0 0 0 4.5 17h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                <span class="dropzone-title">点击选择或拖入图片</span>
-                <span class="dropzone-hint">PNG、JPG、GIF、WebP，最大 10 MB</span>
+                <span class="dropzone-title">点击选择或拖入图片（可多选）</span>
+                <span class="dropzone-hint">PNG、JPG、GIF、WebP，单张最大 10 MB</span>
               </label>
               <div id="upload-progress" class="progress hidden"><div id="upload-progress-bar" class="progress-bar"></div></div>
               <div id="upload-status" class="status" role="status"></div>
@@ -66,6 +66,12 @@
         <div class="gallery-head">
           <h2 class="gallery-title">图片库</h2>
           <span id="gallery-count" class="gallery-count"></span>
+          <span class="gallery-tools">
+            <button id="select-mode" class="ghost-button small hidden">批量管理</button>
+            <button id="select-all" class="ghost-button small hidden">全选</button>
+            <button id="delete-selected" class="ghost-button small danger hidden">删除选中</button>
+            <button id="select-exit" class="ghost-button small hidden">退出管理</button>
+          </span>
         </div>
         <div id="gallery" class="masonry"><div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div></div>
         <p id="gallery-login" class="card muted-card empty hidden">图片库仅对登录用户开放。<a class="primary-button" href="/api/auth/login">使用 GitHub 登录</a></p>

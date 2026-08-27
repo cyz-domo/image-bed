@@ -5,20 +5,35 @@ import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
 const imagePath = /^images\/\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp)$/i;
+const encodePath = (path) => encodeURIComponent(path).replace(/%2F/g, "/");
+const MAX_BATCH = 20;
 
 export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
-    const body = await request.json().catch(() => ({})); const path = body.path;
-    if (!path || !imagePath.test(path)) return error("PATH_INVALID", "图片路径不合法", 400);
-    const head = await ghApi(env, `contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=main`);
-    if (head.status === 404) return error("NOT_FOUND", "图片不存在或已删除", 404);
-    if (!head.ok) return error("DELETE_FAILED", `读取图片信息失败 (${head.status})`, 502);
-    const sha = (await head.json()).sha;
-    const del = await ghApi(env, `contents/${encodeURIComponent(path).replace(/%2F/g, "/")}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
-    if (!del.ok) return error("DELETE_FAILED", `GitHub 删除失败 (${del.status})`, 502);
-    try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => item.path !== path)); } catch {}
-    return json({ ok: true, path });
+    const body = await request.json().catch(() => ({}));
+    // 兼容单个 path 与批量 paths
+    const paths = Array.isArray(body.paths) ? body.paths : body.path ? [body.path] : [];
+    if (!paths.length || paths.length > MAX_BATCH) return error("PATH_INVALID", `一次最多删除 ${MAX_BATCH} 张`, 400);
+    for (const path of paths) if (typeof path !== "string" || !imagePath.test(path)) return error("PATH_INVALID", `图片路径不合法: ${path}`, 400);
+
+    const results = await Promise.all(paths.map(async (path) => {
+      try {
+        const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);
+        if (head.status === 404) return { path, ok: false, message: "不存在或已删除" };
+        if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
+        const sha = (await head.json()).sha;
+        const del = await ghApi(env, `contents/${encodePath(path)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${path}`, sha, branch: "main" }) });
+        return del.ok ? { path, ok: true } : { path, ok: false, message: `删除失败 (${del.status})` };
+      } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
+    }));
+
+    const okPaths = results.filter((r) => r.ok).map((r) => r.path);
+    if (okPaths.length) {
+      try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
+    }
+    const failed = results.filter((r) => !r.ok);
+    return json({ ok: failed.length === 0, deleted: okPaths, failed, failed_count: failed.length });
   } catch (cause) { return error("DELETE_FAILED", cause.message || "删除失败", 502); }
 }

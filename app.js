@@ -72,33 +72,77 @@ async function saveSettings() {
   } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; }
 }
 
-/* ---------- 上传 ---------- */
+/* ---------- 上传（支持批量，并发 2） ---------- */
 function setStatus(message, error = false) {
   const el = $("upload-status"); el.textContent = message; el.className = `status${error ? " error" : ""}`;
 }
 
-async function upload(file) {
-  setStatus(""); $("upload-results").innerHTML = "";
+async function uploadOne(file, progress, bar, done, total) {
+  setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const form = new FormData(); form.append("file", file);
-  const progress = $("upload-progress"); const bar = $("upload-progress-bar");
-  progress.classList.remove("hidden"); bar.style.width = "30%"; bar.classList.add("indeterminate");
   try {
     const data = await api("/api/upload", { method: "POST", body: form });
-    bar.classList.remove("indeterminate"); bar.style.width = "100%";
-    setTimeout(() => progress.classList.add("hidden"), 400);
-    $("upload-results").innerHTML = `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`;
-    $("upload-results").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
-    setStatus("上传完成");
+    $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`);
+    const button = $("upload-results").querySelector(`[data-copy="${CSS.escape(data.markdown)}"]:not([data-bound])`);
+    if (button) { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); }
+    return true;
   } catch (error) {
-    progress.classList.add("hidden");
-    setStatus(error.message, true);
+    $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：${escapeHtml(error.message)}</span></div>`);
+    return false;
   }
 }
 
-/* ---------- 图片库 ---------- */
+async function upload(files) {
+  const list = [...files];
+  setStatus(""); $("upload-results").innerHTML = "";
+  const progress = $("upload-progress"); const bar = $("upload-progress-bar");
+  progress.classList.remove("hidden");
+  let done = 0, ok = 0;
+  const queue = [...list];
+  const worker = async () => { while (queue.length) { const file = queue.shift(); const success = await uploadOne(file, progress, bar, done, list.length); done += 1; if (success) ok += 1; bar.style.width = `${Math.round((done / list.length) * 100)}%`; } };
+  await Promise.all([worker(), worker()]);
+  progress.classList.add("hidden");
+  setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
+  if (state.tab === "gallery" && ok) loadGallery();
+}
+
+/* ---------- 图片库（含批量管理） ---------- */
+const selection = new Set();
+const selectMode = () => state.selectMode === true;
+
+function setSelectMode(on) {
+  state.selectMode = on;
+  if (!on) { selection.clear(); }
+  for (const id of ["select-mode", "select-exit"]) $(id).classList.toggle("hidden", on !== (id === "select-exit"));
+  for (const id of ["select-all", "delete-selected"]) $(id).classList.toggle("hidden", !on);
+  updateSelectionUi();
+  if (state.pageItems) renderGallery(state.pageItems);
+}
+
+function updateSelectionUi() {
+  $("delete-selected").textContent = `删除选中${selection.size ? `（${selection.size}）` : ""}`;
+  $("delete-selected").disabled = selection.size === 0;
+  $("select-all").textContent = selection.size && selection.size === (state.pageItems || []).length ? "取消全选" : "全选";
+}
+
+function renderGallery(items) {
+  state.pageItems = items;
+  $("gallery").innerHTML = items.map((item) => selectMode()
+    ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-toggle="${escapeHtml(item.path)}">${selection.has(item.path) ? "取消选择" : "选择"}</button></figcaption><span class="check" aria-hidden="true"></span></figure>`
+    : `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制</button></figcaption></figure>`).join("");
+  $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view));
+  $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
+  $("gallery").querySelectorAll("[data-toggle]").forEach((button) => button.onclick = () => { const path = button.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
+  // 选择模式下点图片本身也可切换
+  if (selectMode()) $("gallery").querySelectorAll(".shot.selectable img").forEach((img, index) => img.onclick = () => { const path = items[index].path; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(items); updateSelectionUi(); });
+  updateSelectionUi();
+}
+
 async function loadGallery() {
+  $("gallery-login").classList.add("hidden");
   $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   $("gallery-empty").classList.add("hidden");
+  if (!selectMode()) setSelectMode(false);
   try {
     const data = await api(`/api/history?page=${state.page}`);
     const items = data.items;
@@ -106,14 +150,26 @@ async function loadGallery() {
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
     $("page-label").textContent = `第 ${state.page} 页`;
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
-    $("gallery").innerHTML = items.map((item) => `<figure class="shot"><img loading="lazy" src="${item.url}" alt="" /><figcaption class="shot-overlay"><button class="ghost-button small" data-view="${item.url}">查看</button><button class="ghost-button small" data-copy="${escapeHtml(item.url)}">复制</button></figcaption></figure>`).join("");
-    if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); }
-    $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view));
-    $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
+    $("select-mode").classList.remove("hidden");
+    renderGallery(items);
+    if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); $("select-mode").classList.add("hidden"); }
   } catch (error) {
     if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
   }
+}
+
+async function deleteSelected() {
+  const paths = [...selection];
+  if (!paths.length) return;
+  if (!confirm(`确定删除选中的 ${paths.length} 张图片？删除后链接立即失效。`)) return;
+  $("delete-selected").disabled = true; $("delete-selected").textContent = "删除中……";
+  try {
+    const data = await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths }) });
+    if (data.failed_count) alert(`${data.deleted.length} 张已删除，${data.failed_count} 张失败：\n${data.failed.map((f) => `${f.path}：${f.message}`).join("\n")}`);
+    selection.clear(); await loadGallery();
+  } catch (error) { alert(`删除失败：${error.message}`); }
+  finally { $("delete-selected").disabled = false; updateSelectionUi(); }
 }
 
 /* ---------- 大图查看 ---------- */
@@ -130,7 +186,7 @@ async function deleteImage(url) {
   $("lightbox-delete").disabled = true; $("lightbox-delete").textContent = "删除中……";
   try {
     const path = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
-    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [path] }) });
     closeLightbox(); loadGallery();
   } catch (error) { alert(`删除失败：${error.message}`); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
@@ -155,12 +211,16 @@ function switchTab(tab) {
 }
 for (const node of document.querySelectorAll(".nav-link")) node.onclick = () => switchTab(node.dataset.tab);
 $("empty-go").onclick = () => switchTab("home");
+$("select-mode").onclick = () => setSelectMode(true);
+$("select-exit").onclick = () => setSelectMode(false);
+$("select-all").onclick = () => { const items = state.pageItems || []; const all = items.length && items.every((item) => selection.has(item.path)); if (all) items.forEach((item) => selection.delete(item.path)); else items.forEach((item) => selection.add(item.path)); renderGallery(items); updateSelectionUi(); };
+$("delete-selected").onclick = deleteSelected;
 
 /* ---------- 事件绑定 ---------- */
-$("file-input").onchange = (event) => { if (event.target.files[0]) upload(event.target.files[0]); };
+$("file-input").onchange = (event) => { if (event.target.files.length) upload(event.target.files); };
 $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").classList.add("dragging"); };
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
-$("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files[0]) upload(event.dataTransfer.files[0]); };
+$("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
