@@ -27,6 +27,7 @@ export async function sessionValue(login, env) { const payload = b64(encoder.enc
 export async function readSession(request, env) { const value = getCookie(request, "image_session"); if (!value) return null; const [payload, signature] = value.split("."); if (!payload || !signature) return null; const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null; try { const data = JSON.parse(decoder.decode(bytes(payload))); return data.exp > Date.now() ? data : null; } catch { return null; } }
 export function sessionCookie(value) { return cookie("image_session", value, { maxAge: 86400, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }); }
 export function clearSessionCookie() { return cookie("image_session", "", { maxAge: 0, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }); }
+export function clearOauthStateCookie() { return cookie("oauth_state", "", { maxAge: 0, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }); }
 
 function pemBytes(pem) { const raw = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, ""); return Uint8Array.from(atob(raw), (char) => char.charCodeAt(0)); }
 function privateKeyBytes(config) {
