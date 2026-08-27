@@ -41,9 +41,10 @@ async function loadAccount() {
 /* ---------- 站点设置（背景图） ---------- */
 function applyHero(url) {
   state.heroUrl = url;
-  const hero = $("hero");
-  if (url) { hero.style.backgroundImage = `url("${url}")`; hero.hidden = false; document.body.classList.add("has-hero"); }
-  else { hero.style.backgroundImage = ""; hero.hidden = true; document.body.classList.remove("has-hero"); }
+  document.body.classList.toggle("has-hero", Boolean(url));
+  if (url) document.body.style.backgroundImage = `url("${url}")`;
+  else document.body.style.backgroundImage = "";
+  $("hero-remove").hidden = !url;
 }
 
 async function loadSettings() {

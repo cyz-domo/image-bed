@@ -43,11 +43,13 @@ h1 { margin: 0 0 16px; font-size: 30px; font-weight: 700; letter-spacing: -0.02e
 .facts dt { width: 48px; flex: none; color: var(--text-secondary); }
 .facts dd { margin: 0; }
 
-/* ---------- 背景图（可配置） ---------- */
-.hero { margin-top: 40px; height: 180px; border-radius: var(--radius); border: 1px solid var(--border); background-size: cover; background-position: center; position: relative; }
-.hero[hidden] { display: none; }
-#hero-remove { position: absolute; right: 8px; bottom: 8px; background: rgba(255, 255, 255, 0.92); }
-body.has-hero .hero { display: block; }
+/* ---------- 背景图（可配置，铺满全屏） ---------- */
+body.has-hero { background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }
+body.has-hero::before { content: ""; position: fixed; inset: 0; z-index: -1; background: rgba(255, 255, 255, 0.82); backdrop-filter: none; }
+body.has-hero .topbar { background: rgba(255, 255, 255, 0.78); }
+body.has-hero .card, body.has-hero .ghost-button { background: rgba(255, 255, 255, 0.94); }
+.hero { margin-top: 40px; height: 180px; border-radius: var(--radius); border: 1px solid var(--border); background-size: cover; background-position: center; position: relative; display: none; }
+#hero-remove { position: absolute; right: 8px; bottom: 8px; }
 
 /* ---------- 卡片 ---------- */
 .card { padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -56,6 +58,7 @@ body.has-hero .hero { display: block; }
 .home-action { display: grid; gap: 16px; }
 .settings summary { cursor: pointer; font-size: 14px; font-weight: 600; }
 .settings[open] summary { margin-bottom: 16px; }
+.settings-actions { display: flex; gap: 10px; }
 
 /* ---------- 控件 ---------- */
 button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; cursor: pointer; transition: background var(--speed) ease-out, border-color var(--speed) ease-out, color var(--speed) ease-out; }

@@ -23,15 +23,12 @@
         <div class="home-grid">
           <div class="home-copy">
             <h1>图片，传上去，拿走链接。</h1>
-            <p class="lead">个人图床。上传后自动生成 jsDelivr CDN 链接，可直接粘贴到 Markdown 或网页里。仅本人可上传，链接公开可访问。</p>
+            <p class="lead">个人图床。上传后自动生成 jsDelivr CDN 链接，可直接粘贴到 Markdown 或网页里。</p>
             <dl class="facts">
               <div><dt>格式</dt><dd>PNG / JPG / GIF / WebP</dd></div>
               <div><dt>大小</dt><dd>≤ 10 MB，自动转 WebP</dd></div>
               <div><dt>链接</dt><dd>实时生效，公开访问</dd></div>
             </dl>
-            <div id="hero" class="hero" hidden>
-              <button id="hero-remove" class="ghost-button" title="移除背景图">移除背景图</button>
-            </div>
           </div>
           <div class="home-action">
             <div id="upload-cta" class="card muted-card">
@@ -58,6 +55,7 @@
                 <span id="setting-hero-error" class="field-error" hidden></span>
               </label>
               <button id="setting-save" class="primary-button">保存设置</button>
+              <button id="hero-remove" class="ghost-button" hidden>移除背景图</button>
             </details>
           </div>
         </div>
