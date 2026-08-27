@@ -61,11 +61,6 @@
             <option value="oldest">最早优先</option>
             <option value="name">按名称</option>
           </select>
-          <select id="gallery-per-page" class="sort-select">
-            <option value="12">每页 12 张</option>
-            <option value="24">每页 24 张</option>
-            <option value="36">每页 36 张</option>
-          </select>
           <span class="gallery-tools">
             <button id="select-mode" class="ghost-button small hidden">批量管理</button>
             <button id="select-all" class="ghost-button small hidden">全选</button>
@@ -80,6 +75,7 @@
           <button id="previous" class="ghost-button" disabled>上一页</button>
           <span id="page-label" class="pager-label">第 1 页</span>
           <button id="next" class="ghost-button">下一页</button>
+          <label class="pager-size">每页 <input id="per-page-input" type="number" min="3" max="120" step="3" value="12" /> 张</label>
         </div>
       </section>
     </main>

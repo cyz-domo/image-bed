@@ -139,6 +139,9 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .empty { margin: 48px 0; text-align: left; color: var(--text-secondary); font-size: 15px; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 32px; }
 .pager-label { font-size: 13px; color: var(--text-secondary); }
+.pager-size { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.pager-size input { width: 56px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
+.pager-size input:focus { outline: none; border-color: var(--accent); }
 
 /* ---------- 大图 ---------- */
 .lightbox { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 32px; }

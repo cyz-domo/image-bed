@@ -28,7 +28,9 @@ export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
   const config = env || {};
   const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-  const perPage = [12, 24, 36].includes(Number(url.searchParams.get("per_page"))) ? Number(url.searchParams.get("per_page")) : 12;
+  // 每页数量：3 的倍数，3-120，其他值落回默认 12
+  const rawPerPage = Math.round(Number(url.searchParams.get("per_page")) / 3) * 3;
+  const perPage = Number.isFinite(rawPerPage) && rawPerPage >= 3 && rawPerPage <= 120 ? rawPerPage : 12;
   try {
     let items = null;
     if (Date.now() > memory.expires) {

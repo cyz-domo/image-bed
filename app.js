@@ -199,6 +199,8 @@ async function upload(files) {
   if (state.tab === "gallery" && ok) loadGallery();
 }
 $("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
+// 恢复上次每页设置
+try { const saved = Number(localStorage.getItem("image-bed.per-page")); if (saved >= 3) $("per-page-input").value = saved; } catch {}
 
 /* ---------- 图片库（含批量管理） ---------- */
 const selection = new Set();
@@ -254,7 +256,17 @@ function renderGallery(items) {
   updateSelectionUi();
 }
 $("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
-$("gallery-per-page").onchange = () => { state.page = 1; loadGallery(); };
+// 每页数量：自定义输入（3 的倍数，3-120），失焦或回车生效
+function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 3) * 3; return Math.min(120, Math.max(3, Number.isFinite(n) && n >= 3 ? n : 12)); }
+function onPerPageChange() {
+  const input = $("per-page-input");
+  const snapped = perPageValue();
+  input.value = snapped;
+  try { localStorage.setItem("image-bed.per-page", String(snapped)); } catch {}
+  if (snapped !== state.perPage) { state.perPage = snapped; state.page = 1; loadGallery(); }
+}
+$("per-page-input").onchange = onPerPageChange;
+$("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
 
 function cacheGalleryItems(items) { try { localStorage.setItem("image-bed.gallery-page1", JSON.stringify(items)); } catch {} }
 
@@ -268,7 +280,7 @@ async function loadGallery() {
   if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
-    const perPage = $("gallery-per-page").value;
+    const perPage = perPageValue();
     const data = await api(`/api/history?page=${state.page}&per_page=${perPage}`);
     const items = data.items;
     state.hasNext = data.has_next;
