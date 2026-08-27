@@ -103,6 +103,13 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
 - **上传按字节嗅探格式**：浏览器按扩展名上报 MIME，`.png` 实为 JPEG 的图曾触发魔数校验失败；现在以文件真实内容判定格式。
 - **私钥是 PKCS#1**（`BEGIN RSA PRIVATE KEY`）：`crypto.subtle` 只认 PKCS#8，服务端已自动包装转换。
 
+## 分支与部署策略
+
+- `main`：开发主线。**EdgeOne 不跟踪此分支**，推送不触发自动部署；要上线时在 EdgeOne 控制台手动部署（选择 `main`）。
+- `dev-edgeone`：EdgeOne 绑定的占位/预览分支，推此分支会自动部署。
+- 网页上传/删除图片由 GitHub App 直接提交到 `main`（`chore: upload/delete ...`），与分支策略无关；如果云函数代码有未部署的变更，传图后记得手动部署。
+- 把 `main` 的最新代码同步到 dev 分支：`git push origin main:dev-edgeone`。
+
 ## 本地开发
 
 ```bash
