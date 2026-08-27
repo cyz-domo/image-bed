@@ -18,7 +18,7 @@ function kv(env) {
 function todayKey() { return new Date().toISOString().slice(0, 10); }
 function b64Encode(text) { const bytes = encoder.encode(text); let result = ""; const chunk = 0x8000; for (let index = 0; index < bytes.length; index += chunk) result += String.fromCharCode(...bytes.subarray(index, index + chunk)); return btoa(result); }
 
-export function freshState() { return { revoked: [], daily: {}, settings: {} }; }
+export function freshState() { return { revoked: [], daily: {}, settings: {}, links: {} }; }
 
 /* ---------- GitHub 仓库状态文件（兜底存储） ---------- */
 const gh = { sha: null, data: null, loadedAt: 0 };

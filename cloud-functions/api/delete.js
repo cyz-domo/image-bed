@@ -42,6 +42,8 @@ export async function onRequest({ request, env }) {
     const okPaths = results.filter((r) => r.ok).map((r) => r.path);
     if (okPaths.length) {
       try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
+      // 清掉已删图片的外链记录
+      try { await updateState((s) => { for (const path of okPaths) delete s.links?.[path]; }, env); } catch {}
     }
     const failed = results.filter((r) => !r.ok);
     return json({ ok: failed.length === 0, deleted: okPaths, failed, failed_count: failed.length });
