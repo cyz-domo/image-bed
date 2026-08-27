@@ -23,11 +23,11 @@ async function loadAccount() {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
       state.loggedIn = true;
-      account.innerHTML = `<span class="account-name">@${escapeHtml(data.login)}</span><button id="logout" class="ghost-button">退出</button>`;
+      account.innerHTML = `<span class="account-name">@${escapeHtml(data.login)}</span>`;
       $("upload-cta").classList.add("hidden");
       $("upload-panel").classList.remove("hidden");
-      $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
       $("settings-gear").classList.remove("hidden");
+      $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
       loadSettings();
       if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
     } else {
