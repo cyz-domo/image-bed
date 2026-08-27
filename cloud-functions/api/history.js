@@ -1,4 +1,5 @@
 import { ghApi } from "../_lib/github.js";
+import { readSession } from "../_lib/auth.js";
 import { readHistoryCache, writeHistoryCache } from "../_lib/state.js";
 import { json, error } from "../_lib/http.js";
 
@@ -16,6 +17,7 @@ async function fetchFromGitHub(env) {
 }
 
 export async function onRequest({ request, env }) {
+  const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
   const config = env || {};
   const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || 1)); const perPage = 30;
   try {
@@ -26,6 +28,6 @@ export async function onRequest({ request, env }) {
       else { items = await fetchFromGitHub(config); await writeHistoryCache(env, items); memory.items = items; memory.expires = Date.now() + 60000; }
     } else items = memory.items;
     const start = (page - 1) * perPage; const slice = items.slice(start, start + perPage);
-    return json({ items: slice, page, per_page: perPage, has_next: start + perPage < items.length }, 200, { "Cache-Control": "public, max-age=60, s-maxage=300" });
+    return json({ items: slice, page, per_page: perPage, has_next: start + perPage < items.length }, 200, { "Cache-Control": "no-store" });
   } catch { return error("HISTORY_FAILED", "历史记录暂时无法读取", 502); }
 }

@@ -46,10 +46,17 @@ function applyHero(url) {
   $("hero-remove").hidden = !url;
 }
 
-async function loadSettings() {
+// 背景图对所有访客生效（GET /api/settings 公开）
+async function loadHero() {
   try {
     const data = await api("/api/settings");
     applyHero(data.settings.hero_background_url || null);
+  } catch { /* 读取失败就用默认背景 */ }
+}
+
+async function loadSettings() {
+  try {
+    const data = await api("/api/settings");
     $("setting-hero-url").value = data.settings.hero_background_url || "";
   } catch { /* 设置读取失败不阻断页面 */ }
 }
@@ -102,7 +109,10 @@ async function loadGallery() {
     if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); }
     $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view));
     $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button));
-  } catch (error) { $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`; }
+  } catch (error) {
+    if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
+    else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
+  }
 }
 
 /* ---------- 大图查看 ---------- */
@@ -151,5 +161,6 @@ $("previous").onclick = () => { state.page -= 1; loadGallery(); };
 $("next").onclick = () => { state.page += 1; loadGallery(); };
 
 loadAccount();
+loadHero();
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
 if (location.hash === "#gallery") loadGallery();
