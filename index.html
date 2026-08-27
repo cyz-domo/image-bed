@@ -7,60 +7,91 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <nav class="tabs">
-      <div class="tabs-inner">
-        <button id="tab-home" class="tab active" data-tab="home">首页</button>
-        <button id="tab-gallery" class="tab" data-tab="gallery">图片库</button>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">image-bed</a>
+        <nav class="nav">
+          <button class="nav-link active" data-tab="home">上传</button>
+          <button class="nav-link" data-tab="gallery">图片库</button>
+        </nav>
         <div id="account" class="account"></div>
       </div>
-    </nav>
+    </header>
 
-    <main class="shell">
-      <section id="page-home">
-        <header class="hero">
-          <div class="hero-overlay">
-            <p class="eyebrow">GITHUB + JSDELIVR</p>
-            <h1>个人图床</h1>
-            <p class="subtle-hero">这是一个个人站点：图片存储在我的 GitHub 仓库中，经 jsDelivr CDN 分发，公开可访问。</p>
-            <div id="upload-cta" class="panel cta">
-              <p><strong>想上传图片？</strong>本站为私人图床，使用 GitHub 授权登录后即可上传。</p>
-              <a class="login" href="/api/auth/login">使用 GitHub 登录</a>
-            </div>
-            <div id="upload-panel" class="panel hidden">
-              <div class="panel-title"><h2>上传图片</h2><span>最大 10 MB</span></div>
-              <label id="dropzone" class="dropzone" for="file-input">
-                <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
-                <strong>点击选择或拖拽图片到这里</strong>
-                <span>PNG、JPG、GIF、WebP；普通图片会转为 WebP</span>
-              </label>
-              <div id="upload-status" class="status"></div>
-              <div id="upload-results" class="results"></div>
+    <main class="container">
+      <section id="page-home" class="page">
+        <div class="home-grid">
+          <div class="home-copy">
+            <h1>图片，传上去，拿走链接。</h1>
+            <p class="lead">个人图床。上传后自动生成 jsDelivr CDN 链接，可直接粘贴到 Markdown 或网页里。仅本人可上传，链接公开可访问。</p>
+            <dl class="facts">
+              <div><dt>格式</dt><dd>PNG / JPG / GIF / WebP</dd></div>
+              <div><dt>大小</dt><dd>≤ 10 MB，自动转 WebP</dd></div>
+              <div><dt>链接</dt><dd>实时生效，公开访问</dd></div>
+            </dl>
+            <div id="hero" class="hero" hidden>
+              <button id="hero-remove" class="ghost-button" title="移除背景图">移除背景图</button>
             </div>
           </div>
-        </header>
+          <div class="home-action">
+            <div id="upload-cta" class="card muted-card">
+              <h2>登录后上传</h2>
+              <p>本站为私人图床，使用 GitHub 授权登录后即可上传图片。</p>
+              <a class="primary-button" href="/api/auth/login">使用 GitHub 登录</a>
+            </div>
+            <div id="upload-panel" class="card hidden">
+              <label id="dropzone" class="dropzone" for="file-input">
+                <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
+                <svg class="dropzone-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 13V3m0 0L6 7m4-4 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13v2.5A1.5 1.5 0 0 0 4.5 17h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <span class="dropzone-title">点击选择或拖入图片</span>
+                <span class="dropzone-hint">PNG、JPG、GIF、WebP，最大 10 MB</span>
+              </label>
+              <div id="upload-progress" class="progress hidden"><div id="upload-progress-bar" class="progress-bar"></div></div>
+              <div id="upload-status" class="status" role="status"></div>
+              <div id="upload-results" class="results"></div>
+            </div>
+            <details id="settings" class="card settings hidden">
+              <summary>站点设置</summary>
+              <label class="field">
+                <span class="field-label">首页背景图 URL</span>
+                <input id="setting-hero-url" type="url" placeholder="https://…/background.jpg" />
+                <span id="setting-hero-error" class="field-error" hidden></span>
+              </label>
+              <button id="setting-save" class="primary-button">保存设置</button>
+            </details>
+          </div>
+        </div>
       </section>
 
-      <section id="page-gallery" class="hidden">
-        <div class="panel-title"><h2>已上传的图片</h2><button id="refresh" class="link-button">刷新</button></div>
-        <div id="gallery" class="gallery"><p class="subtle">正在加载……</p></div>
-        <div class="pager"><button id="previous" disabled>上一页</button><span id="page-label">第 1 页</span><button id="next">下一页</button></div>
+      <section id="page-gallery" class="page hidden">
+        <div class="gallery-head">
+          <h2 class="gallery-title">图片库</h2>
+          <span id="gallery-count" class="gallery-count"></span>
+        </div>
+        <div id="gallery" class="masonry"><div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div></div>
+        <p id="gallery-empty" class="empty hidden">还没有图片。传第一张上去吧。<button id="empty-go" class="link-button">去上传</button></p>
+        <div class="pager">
+          <button id="previous" class="ghost-button" disabled>上一页</button>
+          <span id="page-label" class="pager-label">第 1 页</span>
+          <button id="next" class="ghost-button">下一页</button>
+        </div>
       </section>
     </main>
 
-    <div id="lightbox" class="lightbox hidden">
+    <div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true">
       <div class="lightbox-backdrop"></div>
       <figure class="lightbox-body">
         <img id="lightbox-image" src="" alt="" />
-        <figcaption>
-          <span id="lightbox-url" class="url"></span>
+        <figcaption class="lightbox-caption">
+          <span id="lightbox-url" class="lightbox-url"></span>
           <div class="lightbox-actions">
-            <button id="lightbox-copy">复制链接</button>
-            <a id="lightbox-open" href="" target="_blank" rel="noreferrer">新窗口打开</a>
-            <button id="lightbox-delete" class="danger">删除</button>
+            <button id="lightbox-copy" class="ghost-button">复制链接</button>
+            <a id="lightbox-open" class="ghost-button" href="" target="_blank" rel="noreferrer">原图</a>
+            <button id="lightbox-delete" class="ghost-button danger">删除</button>
           </div>
         </figcaption>
       </figure>
-      <button id="lightbox-close" aria-label="关闭">&times;</button>
+      <button id="lightbox-close" class="lightbox-close" aria-label="关闭">&times;</button>
     </div>
     <script type="module" src="app.js"></script>
   </body>
