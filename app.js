@@ -244,11 +244,17 @@ function renderGallery(items) {
 }
 $("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
 
+function cacheGalleryItems(items) { try { localStorage.setItem("image-bed.gallery-page1", JSON.stringify(items)); } catch {} }
+
 async function loadGallery() {
   $("gallery-login").classList.add("hidden");
-  $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   $("gallery-empty").classList.add("hidden");
-  if (!selectMode()) setSelectMode(false);
+  $("select-mode").classList.remove("hidden");
+  // 先渲染上次缓存的数据（与背景图同速），再后台刷新
+  let cachedItems = null;
+  try { cachedItems = JSON.parse(localStorage.getItem("image-bed.gallery-page1") || "null"); } catch {}
+  if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
+  else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
     const data = await api(`/api/history?page=${state.page}`);
     const items = data.items;
@@ -256,14 +262,16 @@ async function loadGallery() {
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
     $("page-label").textContent = `第 ${state.page} 页`;
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
-    $("select-mode").classList.remove("hidden");
+    if (state.page === 1) cacheGalleryItems(items);
     renderGallery(items);
     if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); $("select-mode").classList.add("hidden"); }
   } catch (error) {
+    if (cachedItems?.length && state.page === 1) { setStatusQuiet(); return; }
     if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
   }
 }
+function setStatusQuiet() { $("gallery-count").textContent = `${(state.pageItems || []).length} 张（缓存）`; }
 
 async function deleteSelected() {
   const paths = [...selection];
