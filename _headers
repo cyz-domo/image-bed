@@ -1,0 +1,8 @@
+# EdgeOne Pages 自定义响应头（部署时按路径匹配）
+# 前端源码类文件每次部署都可能变化，禁止缓存，避免拿到旧版本
+/index.html
+  Cache-Control: no-cache
+/app.js
+  Cache-Control: no-cache
+/styles.css
+  Cache-Control: no-cache
