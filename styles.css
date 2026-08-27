@@ -38,10 +38,6 @@ body.has-hero { --bg: #ffffff; }
 
 h1 { margin: 0 0 16px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
 .lead { margin: 0 0 32px; color: var(--text-secondary); font-size: 16px; max-width: 42ch; }
-.facts { margin: 0; display: grid; gap: 12px; }
-.facts div { display: flex; gap: 16px; font-size: 14px; }
-.facts dt { width: 48px; flex: none; color: var(--text-secondary); }
-.facts dd { margin: 0; }
 
 /* ---------- 背景图（可配置，独立固定图层铺满全屏） ---------- */
 .bg { display: none; }
