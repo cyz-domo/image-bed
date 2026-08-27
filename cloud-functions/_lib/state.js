@@ -47,11 +47,15 @@ async function ghSave(state) {
 }
 
 /* ---------- 统一状态读写 ---------- */
+const kvMemo = { data: null, loadedAt: 0 };
 export async function loadState(env) {
   const store = kv(env);
   if (store) {
+    if (kvMemo.data && Date.now() - kvMemo.loadedAt < 15000) return kvMemo.data;
     const raw = await store.get(STATE_KEY, { type: "json" });
-    return raw ? { ...freshState(), ...raw } : freshState();
+    kvMemo.data = raw ? { ...freshState(), ...raw } : freshState();
+    kvMemo.loadedAt = Date.now();
+    return kvMemo.data;
   }
   return ghLoad();
 }
@@ -64,7 +68,7 @@ export async function updateState(mutator, env) {
     const state = await loadState(env);
     const result = mutator(state);
     const store = kv(env);
-    if (store) await store.put(STATE_KEY, JSON.stringify(state));
+    if (store) { await store.put(STATE_KEY, JSON.stringify(state)); kvMemo.data = state; kvMemo.loadedAt = Date.now(); }
     else await ghSave(state);
     return result;
   })();

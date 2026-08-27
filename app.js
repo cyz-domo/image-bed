@@ -17,25 +17,39 @@ async function copyText(text, button) {
 }
 
 /* ---------- 账户 ---------- */
+const SESSION_CACHE_KEY = "image-bed.session-hint";
+function renderLoggedIn(login) {
+  state.loggedIn = true;
+  const account = $("account");
+  account.innerHTML = `<span class="account-name">@${escapeHtml(login)}</span>`;
+  $("upload-cta").classList.add("hidden");
+  $("upload-panel").classList.remove("hidden");
+  $("settings-gear").classList.remove("hidden");
+  $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
+  loadSettings();
+  if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
+}
+
 async function loadAccount() {
   const account = $("account");
+  // 乐观渲染：按上次会话提示立即展示登录态，后台再向服务端确认
+  let hint = null;
+  try { hint = JSON.parse(localStorage.getItem(SESSION_CACHE_KEY) || "null"); } catch {}
+  if (hint?.login) renderLoggedIn(hint.login);
   try {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
-      state.loggedIn = true;
-      account.innerHTML = `<span class="account-name">@${escapeHtml(data.login)}</span>`;
-      $("upload-cta").classList.add("hidden");
-      $("upload-panel").classList.remove("hidden");
-      $("settings-gear").classList.remove("hidden");
-      $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
-      loadSettings();
-      if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
+      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login }));
+      if (!hint || hint.login !== data.login || !state.loggedIn) renderLoggedIn(data.login);
     } else {
-      account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
+      localStorage.removeItem(SESSION_CACHE_KEY);
+      if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
     }
   } catch (error) {
-    account.innerHTML = `<a class="primary-button" href="/api/auth/login">登录</a>`;
-    console.warn("auth/me:", error.message);
+    if (!hint) {
+      account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
+      console.warn("auth/me:", error.message);
+    }
   }
 }
 
