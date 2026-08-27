@@ -223,7 +223,7 @@ function renderGallery(items) {
   state.pageItems = sortItems(items);
   const ordered = state.pageItems;
   // JS 分列瀑布流：按顺序放入当前最矮的列，保证视觉顺序从左到右
-  const columnCount = window.matchMedia("(max-width: 560px)").matches ? 1 : window.matchMedia("(max-width: 860px)").matches ? 2 : 3;
+  const columnCount = window.matchMedia("(max-width: 560px)").matches ? 1 : window.matchMedia("(max-width: 860px)").matches ? 2 : 4;
   const columns = Array.from({ length: columnCount }, () => []);
   const heights = new Array(columnCount).fill(0);
   for (const item of ordered) {
