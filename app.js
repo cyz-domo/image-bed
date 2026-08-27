@@ -242,6 +242,7 @@ function renderGallery(items) {
   updateSelectionUi();
 }
 $("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
+$("gallery-per-page").onchange = () => { state.page = 1; loadGallery(); };
 
 function cacheGalleryItems(items) { try { localStorage.setItem("image-bed.gallery-page1", JSON.stringify(items)); } catch {} }
 
@@ -255,7 +256,8 @@ async function loadGallery() {
   if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
-    const data = await api(`/api/history?page=${state.page}`);
+    const perPage = $("gallery-per-page").value;
+    const data = await api(`/api/history?page=${state.page}&per_page=${perPage}`);
     const items = data.items;
     state.hasNext = data.has_next;
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;

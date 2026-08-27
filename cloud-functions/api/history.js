@@ -27,7 +27,8 @@ async function fetchFromGitHub(env) {
 export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
   const config = env || {};
-  const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || 1)); const perPage = 30;
+  const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+  const perPage = [9, 18, 36].includes(Number(url.searchParams.get("per_page"))) ? Number(url.searchParams.get("per_page")) : 9;
   try {
     let items = null;
     if (Date.now() > memory.expires) {
