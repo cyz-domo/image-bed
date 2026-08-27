@@ -43,13 +43,13 @@ h1 { margin: 0 0 16px; font-size: 30px; font-weight: 700; letter-spacing: -0.02e
 .facts dt { width: 48px; flex: none; color: var(--text-secondary); }
 .facts dd { margin: 0; }
 
-/* ---------- 背景图（可配置，铺满全屏） ---------- */
-body.has-hero { background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }
-body.has-hero::before { content: ""; position: fixed; inset: 0; z-index: -1; background: rgba(255, 255, 255, 0.82); backdrop-filter: none; }
+/* ---------- 背景图（可配置，独立固定图层铺满全屏） ---------- */
+.bg { display: none; }
+body.has-hero .bg { display: block; position: fixed; inset: 0; z-index: -2; background-size: cover; background-position: center; background-repeat: no-repeat; }
+body.has-hero::before { content: ""; position: fixed; inset: 0; z-index: -1; background: rgba(255, 255, 255, 0.82); }
 body.has-hero .topbar { background: rgba(255, 255, 255, 0.78); }
 body.has-hero .card, body.has-hero .ghost-button { background: rgba(255, 255, 255, 0.94); }
-.hero { margin-top: 40px; height: 180px; border-radius: var(--radius); border: 1px solid var(--border); background-size: cover; background-position: center; position: relative; display: none; }
-#hero-remove { position: absolute; right: 8px; bottom: 8px; }
+body.has-hero .dropzone { background: rgba(255, 255, 255, 0.7); }
 
 /* ---------- 卡片 ---------- */
 .card { padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }

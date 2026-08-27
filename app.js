@@ -42,8 +42,7 @@ async function loadAccount() {
 function applyHero(url) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
-  if (url) document.body.style.backgroundImage = `url("${url}")`;
-  else document.body.style.backgroundImage = "";
+  $("bg").style.backgroundImage = url ? `url("${url}")` : "";
   $("hero-remove").hidden = !url;
 }
 
