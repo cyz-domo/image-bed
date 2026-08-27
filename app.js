@@ -77,18 +77,22 @@ function setStatus(message, error = false) {
   const el = $("upload-status"); el.textContent = message; el.className = `status${error ? " error" : ""}`;
 }
 
-async function uploadOne(file, progress, bar, done, total) {
+async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const form = new FormData(); form.append("file", file);
-  try {
-    const data = await api("/api/upload", { method: "POST", body: form });
-    $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`);
-    const button = $("upload-results").querySelector(`[data-copy="${CSS.escape(data.markdown)}"]:not([data-bound])`);
-    if (button) { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); }
-    return true;
-  } catch (error) {
-    $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：${escapeHtml(error.message)}</span></div>`);
-    return false;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const data = await api("/api/upload", { method: "POST", body: form });
+      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`);
+      const button = $("upload-results").querySelector(`[data-copy="${CSS.escape(data.markdown)}"]:not([data-bound])`);
+      if (button) { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); }
+      return true;
+    } catch (error) {
+      // 平台偶发的请求体竞态（503 UPLOAD_RETRY）自动重试
+      if (error.message.includes("自动重试") && attempt < 3) { await new Promise((resolve) => setTimeout(resolve, 400 * attempt)); continue; }
+      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：${escapeHtml(error.message)}</span></div>`);
+      return false;
+    }
   }
 }
 
@@ -99,8 +103,8 @@ async function upload(files) {
   progress.classList.remove("hidden");
   let done = 0, ok = 0;
   const queue = [...list];
-  const worker = async () => { while (queue.length) { const file = queue.shift(); const success = await uploadOne(file, progress, bar, done, list.length); done += 1; if (success) ok += 1; bar.style.width = `${Math.round((done / list.length) * 100)}%`; } };
-  await Promise.all([worker(), worker()]);
+  const worker = async () => { while (queue.length) { const file = queue.shift(); const success = await uploadOne(file, done, list.length); done += 1; if (success) ok += 1; bar.style.width = `${Math.round((done / list.length) * 100)}%`; } };
+  await worker(); // 串行上传：规避平台并发请求体的竞态问题
   progress.classList.add("hidden");
   setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
   if (state.tab === "gallery" && ok) loadGallery();
