@@ -18,6 +18,7 @@ async function loadAccount() {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
       account.innerHTML = `<span>@${data.login}</span><button id="logout">退出</button>`;
+      $("upload-cta").classList.add("hidden");
       $("upload-panel").classList.remove("hidden");
       $("logout").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); };
     } else account.innerHTML = '<a class="login" href="/api/auth/login">使用 GitHub 登录上传</a>';
