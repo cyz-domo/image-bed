@@ -9,11 +9,19 @@ async function api(path, options) {
   return body;
 }
 
+let toastTimer = null;
+function showToast(message) {
+  let toast = document.querySelector(".toast");
+  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; document.body.appendChild(toast); }
+  toast.textContent = message;
+  requestAnimationFrame(() => toast.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
+}
+
 async function copyText(text, button, recordPath) {
   await navigator.clipboard.writeText(text);
-  const original = button.dataset.label || button.textContent;
-  button.dataset.label = original; button.textContent = "已复制";
-  setTimeout(() => { button.textContent = original; }, 1500);
+  showToast("已复制到剪贴板");
   if (recordPath) api("/api/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: recordPath }) }).catch(() => {});
 }
 

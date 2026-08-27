@@ -122,6 +122,9 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity: 1; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, 0.92); color: var(--text); cursor: pointer; transition: background var(--speed) ease-out, color var(--speed) ease-out; }
 .icon-button:hover { background: #fff; color: var(--accent); }
+
+.toast { position: fixed; top: 68px; left: 50%; transform: translate(-50%, -8px); z-index: 60; padding: 8px 16px; background: var(--text); color: #fff; font-size: 13px; border-radius: 6px; opacity: 0; pointer-events: none; transition: opacity var(--speed) ease-out, transform var(--speed) ease-out; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 .shot.selectable { cursor: pointer; }
 .shot.selectable .check { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.15); }
 .shot.selectable .check.checked { background: var(--accent); border-color: var(--accent); }
