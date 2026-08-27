@@ -323,15 +323,16 @@ function openLightbox(url, path) {
   $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path);
   $("lightbox-open").href = url;
   $("lightbox-delete").style.display = state.loggedIn ? "" : "none";
-  $("lightbox-delete").onclick = () => deleteImage(url);
+  $("lightbox-delete").onclick = () => deleteImage(url, path);
   $("lightbox").classList.remove("hidden");
 }
-async function deleteImage(url) {
+async function deleteImage(url, knownPath) {
   if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
   $("lightbox-delete").disabled = true; $("lightbox-delete").textContent = "删除中……";
   try {
-    const path = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
-    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [path] }) });
+    // 优先用列表带的真实仓库路径；从 URL 推导仅作兜底（剥掉 jsDelivr 的 gh/owner/repo@main 前缀）
+    const derived = decodeURIComponent(new URL(url).pathname.replace(/^\//, "")).replace(/^gh\/[^/]+\/[^/]+@[^/]+\//, "");
+    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath || derived] }) });
     closeLightbox(); loadGallery();
   } catch (error) { alert(`删除失败：${error.message}`); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
