@@ -7,34 +7,56 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="header">
-        <div>
-          <p class="eyebrow">GITHUB + JSDELIVR</p>
-          <h1>个人图床</h1>
-          <p class="subtle">图片公开存储，登录后上传；历史链接公开可查。</p>
-        </div>
+    <nav class="tabs">
+      <div class="tabs-inner">
+        <button id="tab-home" class="tab active" data-tab="home">首页</button>
+        <button id="tab-gallery" class="tab" data-tab="gallery">图片库</button>
         <div id="account" class="account"></div>
-      </header>
+      </div>
+    </nav>
 
-      <section id="upload-panel" class="panel hidden">
-        <div class="panel-title"><h2>上传图片</h2><span>最大 10 MB</span></div>
-        <label id="dropzone" class="dropzone" for="file-input">
-          <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
-          <strong>点击选择或拖拽图片到这里</strong>
-          <span>PNG、JPG、GIF、WebP；普通图片会转为 WebP</span>
-        </label>
-        <div id="upload-status" class="status"></div>
-        <div id="upload-results" class="results"></div>
+    <main class="shell">
+      <section id="page-home">
+        <header class="hero">
+          <div class="hero-overlay">
+            <p class="eyebrow">GITHUB + JSDELIVR</p>
+            <h1>个人图床</h1>
+            <p class="subtle-hero">这是一个个人站点：图片存储在我的 GitHub 仓库中，经 jsDelivr CDN 分发，公开可访问。</p>
+            <div id="upload-panel" class="panel hidden">
+              <div class="panel-title"><h2>上传图片</h2><span>最大 10 MB</span></div>
+              <label id="dropzone" class="dropzone" for="file-input">
+                <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
+                <strong>点击选择或拖拽图片到这里</strong>
+                <span>PNG、JPG、GIF、WebP；普通图片会转为 WebP</span>
+              </label>
+              <div id="upload-status" class="status"></div>
+              <div id="upload-results" class="results"></div>
+            </div>
+          </div>
+        </header>
       </section>
 
-      <section class="panel">
-        <div class="panel-title"><h2>历史上传链接</h2><button id="refresh" class="link-button">刷新</button></div>
-        <div id="history" class="history"><p class="subtle">正在加载……</p></div>
+      <section id="page-gallery" class="hidden">
+        <div class="panel-title"><h2>已上传的图片</h2><button id="refresh" class="link-button">刷新</button></div>
+        <div id="gallery" class="gallery"><p class="subtle">正在加载……</p></div>
         <div class="pager"><button id="previous" disabled>上一页</button><span id="page-label">第 1 页</span><button id="next">下一页</button></div>
       </section>
     </main>
+
+    <div id="lightbox" class="lightbox hidden">
+      <div class="lightbox-backdrop"></div>
+      <figure class="lightbox-body">
+        <img id="lightbox-image" src="" alt="" />
+        <figcaption>
+          <span id="lightbox-url" class="url"></span>
+          <div class="lightbox-actions">
+            <button id="lightbox-copy">复制链接</button>
+            <a id="lightbox-open" href="" target="_blank" rel="noreferrer">新窗口打开</a>
+          </div>
+        </figcaption>
+      </figure>
+      <button id="lightbox-close" aria-label="关闭">&times;</button>
+    </div>
     <script type="module" src="app.js"></script>
   </body>
 </html>
-
