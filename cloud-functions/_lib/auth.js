@@ -16,8 +16,9 @@ export function publicOrigin(request, env) {
   if (configured) return configured.replace(/\/+$/, "");
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0].trim();
   const host = forwardedHost || request.headers.get("host");
-  if (host?.toLowerCase() === "images.6143443.xyz") return "https://images.6143443.xyz";
-  return "https://images.6143443.xyz";
+  // 未配置 PUBLIC_BASE_URL 时从请求 host 推导（仅允许 https）
+  if (host && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return `https://${host}`;
+  return "http://localhost:8088";
 }
 async function key(env) {
   const config = runtimeEnv(env);

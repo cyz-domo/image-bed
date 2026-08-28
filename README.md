@@ -1,6 +1,6 @@
 # image-bed
 
-个人图床：网页上传，图片存到 GitHub 仓库，通过 [jsDelivr](https://www.jsdelivr.com/) CDN 公开访问。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），自定义域名 `images.6143443.xyz`。
+个人图床：网页上传，图片存到 GitHub 仓库，通过 [jsDelivr](https://www.jsdelivr.com/) CDN 公开访问。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），自定义域名 `images.example.com`。
 
 - **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持在图片库删除已传图片
 - **查看**：公开。任何人不登录也能访问图片链接和图片库
@@ -40,7 +40,7 @@ cloud-functions/
 | `GITHUB_APP_INSTALLATION_ID` | App 安装到仓库后，安装页 URL 里的数字 ID |
 | `GITHUB_APP_PRIVATE_KEY_B64_1/_2/_3` | 私钥 PEM **整个文件**的 base64，拆成三段（见下文） |
 | `SESSION_SECRET` | 会话签名密钥，`openssl rand -hex 32` 生成 |
-| `PUBLIC_BASE_URL` | `https://images.6143443.xyz`（OAuth 回调基于它构造） |
+| `PUBLIC_BASE_URL` | `https://images.example.com`（OAuth 回调基于它构造） |
 | `GITHUB_OWNER` / `GITHUB_REPO` | 图片仓库，如 `cyz-domo` / `image-bed` |
 | `ALLOWED_GITHUB_LOGIN` | 允许上传的 GitHub 用户名 |
 | `MAX_FILE_SIZE` | 上传大小上限，默认 10485760（10 MB） |
@@ -80,7 +80,7 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
 1. **建图片仓库**：公开仓库（jsDelivr 只缓存公开仓库），即 `GITHUB_OWNER/GITHUB_REPO`。
 2. **创建 GitHub App**（https://github.com/settings/apps/new）：
    - Homepage URL 填站点域名；勾选 **Request user authorization (OAuth) during installation** 及 Webhook 可留空/不勾；
-   - Callback URL：`https://images.6143443.xyz/api/auth/callback`；
+   - Callback URL：`https://images.example.com/api/auth/callback`；
    - Repository permissions：**Contents: Read and write**；
    - 创建后记录 App ID、Client ID，生成 Client secret，**Generate a private key** 下载 `.pem`。
 3. **安装 App 到图片仓库**，安装页 URL `https://github.com/apps/<app-name>/installations/<数字>` 中的数字即 Installation ID。
@@ -90,9 +90,9 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
    - 按上表配置全部环境变量（含三段私钥）。
 5. **部署后自检**：
    ```bash
-   curl -s https://images.6143443.xyz/api/health
-   curl -s https://images.6143443.xyz/api/auth/me        # {"authenticated":false}
-   curl -sI https://images.6143443.xyz/api/auth/login    # 302 → github.com/login/oauth/authorize
+   curl -s https://images.example.com/api/health
+   curl -s https://images.example.com/api/auth/me        # {"authenticated":false}
+   curl -sI https://images.example.com/api/auth/login    # 302 → github.com/login/oauth/authorize
    ```
 6. **网页登录验证**：右上角"使用 GitHub 登录上传" → GitHub 授权 → 回站后右上角显示 `@用户名` 和退出按钮、首页出现上传面板。
 
@@ -105,10 +105,47 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
 
 ## 分支与部署策略
 
-- `main`：开发主线。**EdgeOne 不跟踪此分支**，推送不触发自动部署；要上线时在 EdgeOne 控制台手动部署（选择 `main`）。
-- `dev-edgeone`：EdgeOne 绑定的占位/预览分支，推此分支会自动部署。
-- 网页上传/删除图片由 GitHub App 直接提交到 `main`（`chore: upload/delete ...`），与分支策略无关；如果云函数代码有未部署的变更，传图后记得手动部署。
-- 把 `main` 的最新代码同步到 dev 分支：`git push origin main:dev-edgeone`。
+- `main`：开发主线。**EdgeOne 不跟踪此分支**，推送不触发自动部署。
+- `dev-edgeone`：EdgeOne 绑定的分支，推此分支即自动部署（约 1-2 分钟）。
+- 网页上传/删除图片由 GitHub App 直接提交到 `main`（`chore: upload/delete ...`），与分支策略无关；如果云函数代码有未部署的变更，传图后记得部署。
+- 把 `main` 的最新代码同步到 dev 分支并触发部署：`git push origin main:dev-edgeone`。
+
+### 用 CLI 部署（推荐）
+
+EdgeOne CLI（`npm install -g edgeone`，已登录腾讯云账号）支持两种部署方式：
+
+**方式一：git 分支触发**（正式项目 `image-bed` 是 GitHub 绑定型，CLI 直传不支持，但推分支即部署）：
+
+```bash
+git push origin main:dev-edgeone   # 同步 main → dev-edgeone，自动部署
+```
+
+**方式二：CLI 直传**（创建/更新直传型项目，不需要 git 仓库）：
+
+```bash
+# 项目已 link（.edgeone/project.json 存在）时：
+edgeone makers deploy --env production
+
+# 新项目：--name 指定项目名，同时支持 --json 输出（适合脚本/Agent 消费）
+edgeone makers deploy --name <project-name> --env production --json
+```
+
+直传部署要点：
+
+- **只打包必要文件**：直传会把目录下所有文件传上去。至少排除 `.env`（含密钥）、`node_modules`、`images/`、`.git`。推荐建一个干净的 staging 目录再部署（见 `scripts/deploy-cli.sh`）。
+- 部署成功返回**带 `eo_token` 的预览 URL**（`*.edgeone.cool` 域名），URL 直接访问会 401/302，需要浏览器访问种下 cookie 后才能继续访问；正式域名（自定义域名）不受此限制。
+- 直传项目**不继承**正式项目的环境变量，需要用 CLI 单独配置：`edgeone makers env set <KEY> <VALUE>`（在项目目录内执行，或 `link` 之后执行）。三段式私钥也可这样设置。
+- **⚠️ 实测限制（2026-08）：直传型项目的云函数加载 `sharp` 会崩溃**（所有 `/api/*` 路由 502，错误页显示 "This function has crashed: ReferenceError"）。二分定位结论：不含 sharp 的函数、相对导入 `_lib`、`package.json`+sharp 依赖声明但函数不 import sharp，均正常；只要函数顶层或动态 `import("sharp")` 即崩溃。GitHub 绑定型项目（本项目正式部署方式）不受影响。因此 **CLI 直传只适合部署纯静态版本或做前端预览，完整功能必须走 git 分支部署**。
+- CLI 没有删除项目的 API（只有 `DeletePagesProjectEnvs`），测试用的直传项目需到控制台手动删除。
+- 本地 `edgeone makers dev` 会先做依赖同步与构建校验，可提前发现打包问题（本项目本地构建验证通过）。
+
+### 部署后自检
+
+```bash
+curl -s https://images.example.com/api/health        # {"ok":true,"missing":[]}
+curl -s https://images.example.com/api/auth/me       # {"authenticated":false}
+curl -sI https://images.example.com/api/auth/login   # 302 → github.com/login/oauth/authorize
+```
 
 ## 本地开发
 
@@ -122,7 +159,7 @@ EdgeOne CLI 本地调试（读 `.env` 中的变量）：
 ```bash
 npm install -g edgeone
 edgeone login
-edgeone makers link
+edgeone makers link   # 或 edgeone makers dev -n <项目名>
 edgeone makers dev      # http://localhost:8088/
 ```
 
