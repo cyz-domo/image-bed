@@ -199,8 +199,15 @@ async function upload(files) {
   if (state.tab === "gallery" && ok) loadGallery();
 }
 $("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
-// 恢复上次每页设置
-try { const saved = Number(localStorage.getItem("image-bed.per-page")); if (saved >= 3) $("per-page-input").value = saved; } catch {}
+// 恢复上次每页设置（旧值可能是 3 的倍数，吸附到 4 的倍数）
+try {
+  const saved = Number(localStorage.getItem("image-bed.per-page"));
+  if (saved >= 3) {
+    const snapped = Math.min(120, Math.max(4, Math.round(saved / 4) * 4));
+    $("per-page-input").value = snapped;
+    localStorage.setItem("image-bed.per-page", String(snapped));
+  }
+} catch {}
 
 /* ---------- 图片库（含批量管理） ---------- */
 const selection = new Set();
@@ -256,8 +263,8 @@ function renderGallery(items) {
   updateSelectionUi();
 }
 $("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
-// 每页数量：自定义输入（3 的倍数，3-120），失焦或回车生效
-function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 3) * 3; return Math.min(120, Math.max(3, Number.isFinite(n) && n >= 3 ? n : 12)); }
+// 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
+function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 4) * 4; return Math.min(120, Math.max(4, Number.isFinite(n) && n >= 4 ? n : 12)); }
 function onPerPageChange() {
   const input = $("per-page-input");
   const snapped = perPageValue();
