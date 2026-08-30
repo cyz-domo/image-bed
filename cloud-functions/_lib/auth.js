@@ -25,7 +25,7 @@ async function key(env) {
   if (!config.SESSION_SECRET) throw new Error("SESSION_SECRET 未配置");
   return crypto.subtle.importKey("raw", encoder.encode(config.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
-export async function sessionValue(login, env) { const sessionId = b64(crypto.getRandomValues(new Uint8Array(12))); const payload = b64(encoder.encode(JSON.stringify({ login, sid: sessionId, exp: Date.now() + 86400000 }))); const signature = b64(new Uint8Array(await crypto.subtle.sign("HMAC", await key(env), encoder.encode(payload)))); return `${payload}.${signature}`; }
+export async function sessionValue(login, env, avatarUrl = "") { const sessionId = b64(crypto.getRandomValues(new Uint8Array(12))); const safeAvatar = typeof avatarUrl === "string" && /^https:\/\//.test(avatarUrl) ? avatarUrl : ""; const payload = b64(encoder.encode(JSON.stringify({ login, avatar_url: safeAvatar, sid: sessionId, exp: Date.now() + 86400000 }))); const signature = b64(new Uint8Array(await crypto.subtle.sign("HMAC", await key(env), encoder.encode(payload)))); return `${payload}.${signature}`; }
 export async function readSession(request, env) {
   const value = getCookie(request, "image_session"); if (!value) return null; const [payload, signature] = value.split("."); if (!payload || !signature) return null;
   const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null;
