@@ -42,7 +42,7 @@ export async function onRequest({ request, env }) {
     } catch { thumbPath = null; }
     await updateState((s) => bumpDailyCount(s), env).catch(() => {}); // 计数失败不阻断上传结果
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
-    await (async () => { try { const cached = await readHistoryCache(env); const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`, ...(thumbPath ? { thumb: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${thumbPath}` } : {}) }; await writeHistoryCache(env, [item, ...((cached && Date.now() - cached.savedAt < 600000 && cached.items) || [])]); } catch {} })();
+    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`, ...(thumbPath ? { thumb: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${thumbPath}` } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
     const url = `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`;
     return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: remaining - 1 });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }

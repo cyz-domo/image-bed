@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, galleryRequest: 0, uploading: false };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null };
 let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -43,7 +43,6 @@ function renderLoggedIn(login, avatarUrl) {
   account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" src="${escapeHtml(safeAvatar)}" alt="${escapeHtml(login)}" onerror="this.src='${avatarFallback(login)}';this.onerror=null"><span class="account-name">@${escapeHtml(login)}</span></button>`;
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
-  $("settings-gear").classList.add("hidden");
   const toggle = $("account-toggle");
   toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden"))); };
   $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
@@ -56,12 +55,12 @@ async function loadAccount() {
   // 乐观渲染：按上次会话提示立即展示登录态，后台再向服务端确认
   let hint = null;
   try { hint = JSON.parse(localStorage.getItem(SESSION_CACHE_KEY) || "null"); } catch {}
-  if (hint?.login) renderLoggedIn(hint.login);
+  if (hint?.login) renderLoggedIn(hint.login, hint.avatarUrl);
   try {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
-      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login }));
-      if (!hint || hint.login !== data.login || !state.loggedIn || !$("account-avatar")?.getAttribute("src")) renderLoggedIn(data.login, data.avatar_url);
+      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login, avatarUrl: data.avatar_url }));
+      renderLoggedIn(data.login, data.avatar_url);
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
       if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
@@ -90,8 +89,12 @@ async function heroCachePut(url, blob) {
   } catch {}
 }
 
+async function heroCacheDelete(url) {
+  if (!url) return;
+  try { const db = await heroDb(); await new Promise((resolve) => { const tx = db.transaction("kv", "readwrite").objectStore("kv").delete(url); tx.onsuccess = resolve; tx.onerror = resolve; }); } catch {}
+}
+
 /* ---------- 站点设置（背景图） ---------- */
-let heroAppliedUrl = null;
 function applyHero(url, blob) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
@@ -102,19 +105,22 @@ function applyHero(url, blob) {
 }
 
 // 背景图对所有访客生效（GET /api/settings 公开）；字节缓存在浏览器 IndexedDB
-async function loadHero() {
+async function loadHero(urlOverride) {
+  const requestId = ++state.heroRequest;
   try {
-    const data = await api("/api/settings");
-    const url = data.settings.hero_background_url || null;
+    const url = urlOverride === undefined ? (await api("/api/settings")).settings.hero_background_url || null : urlOverride || null;
+    if (requestId !== state.heroRequest) return;
     if (!url) { applyHero(null); return; }
     const cached = await heroCacheGet(url);
+    if (requestId !== state.heroRequest) return;
     if (cached) { applyHero(url, cached); return; }
     const response = await fetch(url);
-    if (!response.ok) { applyHero(null); return; }
+    if (!response.ok) throw new Error("背景图读取失败");
     const blob = await response.blob();
+    if (requestId !== state.heroRequest) return;
     applyHero(url, blob);
     heroCachePut(url, blob);
-  } catch { /* 读取失败就用默认背景 */ }
+  } catch { if (requestId === state.heroRequest && !state.heroUrl) applyHero(null); }
 }
 
 async function loadSettings() {
@@ -134,8 +140,10 @@ async function saveSettings() {
   const heroUrl = $("setting-hero-url").value.trim();
   if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; return; }
   try {
+    const previousHeroUrl = state.heroUrl;
     const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
-    applyHero(data.settings.hero_background_url || null);
+    if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
+    await loadHero(data.settings.hero_background_url || null);
     $("setting-daily-limit").value = data.settings.daily_upload_limit;
     $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
@@ -215,6 +223,7 @@ async function upload(files) {
   state.uploading = false; $("dropzone").classList.remove("uploading");
   setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
   $("results-footer").classList.toggle("hidden", !ok);
+  if (ok) { try { localStorage.removeItem(`image-bed.gallery-page1.${perPageValue()}`); } catch {} }
   if (state.tab === "gallery" && ok) loadGallery();
 }
 $("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
@@ -300,6 +309,8 @@ async function loadGallery() {
   const requestId = ++state.galleryRequest;
   const perPage = perPageValue();
   $("gallery-login").classList.add("hidden");
+  $("gallery-empty").classList.add("hidden");
+  $("select-mode").classList.add("hidden");
   let cachedItems = null;
   try { cachedItems = JSON.parse(localStorage.getItem(`image-bed.gallery-page1.${perPage}`) || "null"); } catch {}
   if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
@@ -314,8 +325,11 @@ async function loadGallery() {
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
     if (state.page === 1) cacheGalleryItems(items, perPage);
     renderGallery(items);
-    if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); $("select-mode").classList.add("hidden"); }
+    $("select-mode").classList.toggle("hidden", !items.length);
+    if (!items.length && state.page > 1) { state.page -= 1; loadGallery(); return; }
+    if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); }
   } catch (error) {
+    if (requestId !== state.galleryRequest) return;
     if (cachedItems?.length && state.page === 1) { setStatusQuiet(); return; }
     if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
@@ -338,18 +352,20 @@ async function deleteSelected() {
     } catch (error) { failed.push(...paths.slice(i, i + 5).map((path) => ({ path, message: error.message }))); }
   }
   if (failed.length) alert(`${deleted.length} 张已删除，${failed.length} 张失败：\n${failed.map((f) => `${f.path}：${f.message}`).join("\n")}`);
-  selection.clear(); await loadGallery();
+  selection.clear(); try { localStorage.removeItem(`image-bed.gallery-page1.${perPageValue()}`); } catch {} await loadGallery();
 }
 
 /* ---------- 大图查看 ---------- */
 function openLightbox(url, path) {
-  $("lightbox-image").src = url; $("lightbox-url").textContent = url;
+  state.lightboxOpener = document.activeElement;
+  $("lightbox-image").src = url; $("lightbox-image").alt = path || "预览图片"; $("lightbox-url").textContent = url;
   $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path);
   $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path);
   $("lightbox-open").href = url;
   $("lightbox-delete").style.display = state.loggedIn ? "" : "none";
   $("lightbox-delete").onclick = () => deleteImage(url, path);
   $("lightbox").classList.remove("hidden");
+  $("lightbox-close").focus();
 }
 async function deleteImage(url, knownPath) {
   if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
@@ -362,10 +378,10 @@ async function deleteImage(url, knownPath) {
   } catch (error) { alert(`删除失败：${error.message}`); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
-function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); }
+function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
 $("lightbox-close").onclick = closeLightbox;
 document.querySelector(".lightbox-backdrop").onclick = closeLightbox;
-document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("lightbox").classList.contains("hidden")) closeLightbox(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
 
 /* ---------- 标签页 ---------- */
 function switchTab(tab) {
@@ -388,7 +404,7 @@ $("select-all").onclick = () => { const items = state.pageItems || []; const all
 $("delete-selected").onclick = deleteSelected;
 
 /* ---------- 事件绑定 ---------- */
-$("file-input").onchange = (event) => { if (event.target.files.length) upload(event.target.files); };
+$("file-input").onchange = (event) => { const files = [...event.target.files]; event.target.value = ""; if (files.length) upload(files); };
 // 剪贴板粘贴上传：任何位置 Ctrl/Cmd+V 粘贴截图或复制的图片
 document.addEventListener("paste", (event) => {
   if (!state.loggedIn) return;
@@ -404,8 +420,7 @@ $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
-$("settings-gear").onclick = (event) => { event.stopPropagation(); $("settings-panel").classList.toggle("hidden"); };
-document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && event.target !== $("settings-gear")) $("settings-panel").classList.add("hidden"); });
+document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
 $("next").onclick = () => { state.page += 1; loadGallery(); };
 

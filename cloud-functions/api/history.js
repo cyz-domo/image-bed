@@ -13,6 +13,7 @@ async function fetchFromGitHub(env) {
   const response = await ghApi(env, "git/trees/main?recursive=1");
   if (!response.ok) throw new Error(`GitHub tree 读取失败 (${response.status})`);
   const tree = await response.json();
+  if (tree.truncated) throw new Error("GitHub tree 结果不完整");
   // thumb: 同名缩略图存于 .thumbnails/；存量老图没有则降级用原图
   const thumbSet = new Set((tree.tree || []).filter((item) => item.type === "blob" && item.path.startsWith(".thumbnails/")).map((item) => item.path));
   return (tree.tree || [])
@@ -29,7 +30,7 @@ export function invalidateHistoryCache() { memory.items = []; memory.expires = 0
 export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
   const config = env || {};
-  const url = new URL(request.url); const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+  const url = new URL(request.url); const rawPage = Number(url.searchParams.get("page") || 1); const page = Number.isSafeInteger(rawPage) && rawPage >= 1 && rawPage <= 100000 ? rawPage : 1;
   // 每页数量：4 的倍数，4-120（与桌面端 4 列瀑布流对齐），其他值落回默认 12
   const rawPerPage = Math.round(Number(url.searchParams.get("per_page")) / 4) * 4;
   const perPage = Number.isFinite(rawPerPage) && rawPerPage >= 4 && rawPerPage <= 120 ? rawPerPage : 12;
