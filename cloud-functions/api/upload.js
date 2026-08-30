@@ -1,8 +1,9 @@
 import sharp from "sharp";
 import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache } from "../_lib/state.js";
+import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
+import { imageUrl } from "../_lib/image-url.js";
 
 const defaultMaxBytes = 10485760;
 const defaultDailyLimit = 100;
@@ -45,8 +46,9 @@ export async function onRequest({ request, env }) {
     } catch { thumbPath = null; }
     await updateState((s) => { s.daily = { key: new Date().toISOString().slice(0, 10), count: reservation.used }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
-    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, url: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`, ...(thumbPath ? { thumb: `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${thumbPath}` } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
-    const url = `https://cdn.jsdelivr.net/gh/${env.GITHUB_OWNER}/${env.GITHUB_REPO}@main/${path}`;
+    invalidateHistoryCache();
+    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
+    const url = imageUrl(env, path, state.settings);
     return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: reservation.remaining });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
 }

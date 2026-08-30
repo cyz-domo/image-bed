@@ -137,6 +137,7 @@ async function loadSettings() {
     const data = await api("/api/settings");
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
+    $("setting-accelerator-url").value = s.accelerator_base_url || "";
     $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
     $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
     const hint = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
@@ -150,9 +151,10 @@ async function saveSettings() {
   if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: $("setting-accelerator-url").value.trim(), daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null);
+    invalidateGalleryCache();
     $("setting-daily-limit").value = data.settings.daily_upload_limit;
     $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
@@ -415,10 +417,9 @@ async function deleteImage(url, knownPath) {
   if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
   $("lightbox-delete").disabled = true; $("lightbox-delete").textContent = "删除中……";
   try {
-    // 优先用列表带的真实仓库路径；从 URL 推导仅作兜底（剥掉 jsDelivr 的 gh/owner/repo@main 前缀）
-    const derived = decodeURIComponent(new URL(url).pathname.replace(/^\//, "")).replace(/^gh\/[^/]+\/[^/]+@[^/]+\//, "");
-    const data = await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath || derived] }) });
-    const targetPath = knownPath || derived;
+    if (!knownPath) throw new Error("缺少图片仓库路径，无法删除");
+    const data = await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath] }) });
+    const targetPath = knownPath;
     if (!(data.deleted || []).includes(targetPath) || (data.failed || []).some((item) => item.path === targetPath)) throw new Error(data.failed?.find((item) => item.path === targetPath)?.message || "图片删除未完成");
     invalidateGalleryCache(); closeLightbox(); loadGallery();
   } catch (error) { alert(`删除失败：${error.message}`); }

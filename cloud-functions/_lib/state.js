@@ -101,6 +101,11 @@ export function revokeSession(state, sessionId) { if (!state.revoked.includes(se
 export function bumpDailyCount(state) { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; state.daily.count += 1; return state.daily.count; }
 export function setSetting(state, name, value) { state.settings = { ...state.settings, [name]: value }; }
 
+const historyMemory = { expires: 0, items: [] };
+export function readMemoryHistory() { return Date.now() < historyMemory.expires ? historyMemory.items : null; }
+export function writeMemoryHistory(items, ttl = 60000) { historyMemory.items = items; historyMemory.expires = Date.now() + ttl; }
+export function invalidateHistoryCache() { historyMemory.items = []; historyMemory.expires = 0; }
+
 /* ---------- 历史列表 KV 缓存（跨实例共享，避免每次回源 GitHub tree） ---------- */
 export async function readHistoryCache(env) {
   const store = kv(env);

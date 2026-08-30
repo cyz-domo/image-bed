@@ -1,6 +1,6 @@
 import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { readHistoryCache, writeHistoryCache, updateState } from "../_lib/state.js";
+import { readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
@@ -47,7 +47,7 @@ export async function onRequest({ request, env }) {
     const okPaths = results.filter((r) => r.ok).map((r) => r.path);
     if (okPaths.length) {
       try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
-      // 清掉已删图片的外链记录
+      invalidateHistoryCache();
       try { await updateState((s) => { for (const path of okPaths) delete s.links?.[path]; }, env); } catch {}
     }
     const failed = results.filter((r) => !r.ok);
