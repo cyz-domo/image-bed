@@ -1,4 +1,5 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, galleryRequest: 0, uploading: false };
+let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -20,20 +21,29 @@ function showToast(message) {
 }
 
 async function copyText(text, button, recordPath) {
-  await navigator.clipboard.writeText(text);
-  showToast("已复制到剪贴板");
-  if (recordPath) api("/api/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: recordPath }) }).catch(() => {});
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else { const input = document.createElement("textarea"); input.value = text; input.style.position = "fixed"; input.style.opacity = "0"; document.body.append(input); input.select(); if (!document.execCommand("copy")) throw new Error("复制失败"); input.remove(); }
+    showToast("已复制到剪贴板");
+    if (recordPath) api("/api/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: recordPath }) }).catch(() => {});
+  } catch { showToast("复制失败，请检查剪贴板权限"); }
+  finally { if (button) { button.disabled = false; button.classList.add("copied"); setTimeout(() => button.classList.remove("copied"), 700); } }
 }
 
 /* ---------- 账户 ---------- */
 const SESSION_CACHE_KEY = "image-bed.session-hint";
-function renderLoggedIn(login) {
+function renderLoggedIn(login, avatarUrl) {
   state.loggedIn = true;
   const account = $("account");
-  account.innerHTML = `<span class="account-name">@${escapeHtml(login)}</span>`;
+  account.classList.remove("hidden");
+  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" src="${escapeHtml(avatarUrl || "")}" alt="" onerror="this.removeAttribute('src');this.classList.add('avatar-fallback')"><span class="account-name">@${escapeHtml(login)}</span></button>`;
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
-  $("settings-gear").classList.remove("hidden");
+  $("settings-gear").classList.add("hidden");
+  const toggle = $("account-toggle");
+  toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden"))); };
   $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
   loadSettings();
   if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
@@ -49,7 +59,7 @@ async function loadAccount() {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login }));
-      if (!hint || hint.login !== data.login || !state.loggedIn) renderLoggedIn(data.login);
+      if (!hint || hint.login !== data.login || !state.loggedIn) renderLoggedIn(data.login, data.avatar_url);
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
       if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
@@ -83,8 +93,9 @@ let heroAppliedUrl = null;
 function applyHero(url, blob) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
-  if (url && blob) { heroAppliedUrl = url; URL.revokeObjectURL(heroAppliedUrl && $("bg").dataset.objectUrl); const objectUrl = URL.createObjectURL(blob); $("bg").style.backgroundImage = `url("${objectUrl}")`; $("bg").dataset.objectUrl = objectUrl; }
-  else if (!url) { if ($("bg").dataset.objectUrl) URL.revokeObjectURL($("bg").dataset.objectUrl); $("bg").style.backgroundImage = ""; }
+  if (activeHeroObjectUrl) { URL.revokeObjectURL(activeHeroObjectUrl); activeHeroObjectUrl = null; }
+  if (url && blob) { activeHeroObjectUrl = URL.createObjectURL(blob); $("bg").style.backgroundImage = `url("${activeHeroObjectUrl}")`; }
+  else if (!url) $("bg").style.backgroundImage = "";
   $("hero-remove").hidden = !url;
 }
 
@@ -169,9 +180,8 @@ async function uploadOne(file, done, total) {
         xhr.onerror = () => reject(new Error("网络错误"));
         xhr.send(form);
       });
-      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><button class="ghost-button" data-copy="${escapeHtml(data.markdown)}">复制 Markdown</button></div></div>`);
-      const button = $("upload-results").querySelector(`[data-copy="${CSS.escape(data.markdown)}"]:not([data-bound])`);
-      if (button) { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); }
+      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><div class="result-actions"><button class="icon-button" data-copy="${escapeHtml(data.url)}" title="复制链接" aria-label="复制链接">↗</button><button class="icon-button" data-copy="${escapeHtml(data.markdown)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button></div></div></div>`);
+      $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
       return true;
     } catch (error) {
       // 平台偶发的请求体竞态（503 UPLOAD_RETRY）自动重试
@@ -184,16 +194,23 @@ async function uploadOne(file, done, total) {
 
 async function upload(files) {
   const list = [...files];
-  setStatus(""); $("upload-results").innerHTML = "";
+  if (!list.length || state.uploading) return;
+  setStatus("");
+  $("upload-results").innerHTML = "";
   const progress = $("upload-progress"); const bar = $("upload-progress-bar");
   progress.classList.remove("hidden");
+  progress.setAttribute("aria-valuenow", "0");
+  state.uploading = true;
+  $("dropzone").classList.add("uploading");
   let done = 0, ok = 0;
   for (const file of list) {
     const success = await uploadOne(file, done, list.length);
     done += 1; if (success) ok += 1;
-    bar.style.width = `${Math.round((done / list.length) * 100)}%`;
+    const percent = Math.round((done / list.length) * 100);
+    bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
   }
   progress.classList.add("hidden");
+  state.uploading = false; $("dropzone").classList.remove("uploading");
   setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
   $("results-footer").classList.toggle("hidden", !ok);
   if (state.tab === "gallery" && ok) loadGallery();
@@ -275,26 +292,25 @@ function onPerPageChange() {
 $("per-page-input").onchange = onPerPageChange;
 $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
 
-function cacheGalleryItems(items) { try { localStorage.setItem("image-bed.gallery-page1", JSON.stringify(items)); } catch {} }
+function cacheGalleryItems(items, perPage) { try { localStorage.setItem(`image-bed.gallery-page1.${perPage}`, JSON.stringify(items)); } catch {} }
 
 async function loadGallery() {
+  const requestId = ++state.galleryRequest;
+  const perPage = perPageValue();
   $("gallery-login").classList.add("hidden");
-  $("gallery-empty").classList.add("hidden");
-  $("select-mode").classList.remove("hidden");
-  // 先渲染上次缓存的数据（与背景图同速），再后台刷新
   let cachedItems = null;
-  try { cachedItems = JSON.parse(localStorage.getItem("image-bed.gallery-page1") || "null"); } catch {}
+  try { cachedItems = JSON.parse(localStorage.getItem(`image-bed.gallery-page1.${perPage}`) || "null"); } catch {}
   if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
-    const perPage = perPageValue();
     const data = await api(`/api/history?page=${state.page}&per_page=${perPage}`);
+    if (requestId !== state.galleryRequest) return;
     const items = data.items;
     state.hasNext = data.has_next;
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
     $("page-label").textContent = `第 ${state.page} 页`;
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
-    if (state.page === 1) cacheGalleryItems(items);
+    if (state.page === 1) cacheGalleryItems(items, perPage);
     renderGallery(items);
     if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); $("select-mode").classList.add("hidden"); }
   } catch (error) {

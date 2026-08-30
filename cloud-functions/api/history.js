@@ -24,6 +24,8 @@ async function fetchFromGitHub(env) {
     .reverse();
 }
 
+export function invalidateHistoryCache() { memory.items = []; memory.expires = 0; }
+
 export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
   const config = env || {};
