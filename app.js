@@ -1,4 +1,8 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null };
+const galleryPrefetches = new Map();
+const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
+const GALLERY_CACHE_TTL = 5 * 60 * 1000;
+const GALLERY_CACHE_LIMIT = 6;
 let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -37,6 +41,7 @@ const SESSION_CACHE_KEY = "image-bed.session-hint";
 function avatarFallback(login) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="#e0e7ff"/><text x="32" y="39" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#4338ca">${(login || "?")[0].toUpperCase()}</text></svg>`)}`; }
 function renderLoggedIn(login, avatarUrl) {
   state.loggedIn = true;
+  state.login = login;
   const account = $("account");
   account.classList.remove("hidden");
   const safeAvatar = /^https:\/\//.test(avatarUrl || "") ? avatarUrl : avatarFallback(login);
@@ -45,7 +50,7 @@ function renderLoggedIn(login, avatarUrl) {
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
   toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden"))); };
-  $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
+  $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); invalidateGalleryCache(); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
   loadSettings();
   if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
 }
@@ -223,7 +228,7 @@ async function upload(files) {
   state.uploading = false; $("dropzone").classList.remove("uploading");
   setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
   $("results-footer").classList.toggle("hidden", !ok);
-  if (ok) { try { localStorage.removeItem(`image-bed.gallery-page1.${perPageValue()}`); } catch {} }
+  if (ok) invalidateGalleryCache();
   if (state.tab === "gallery" && ok) loadGallery();
 }
 $("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
@@ -303,7 +308,23 @@ function onPerPageChange() {
 $("per-page-input").onchange = onPerPageChange;
 $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
 
-function cacheGalleryItems(items, perPage) { try { localStorage.setItem(`image-bed.gallery-page1.${perPage}`, JSON.stringify(items)); } catch {} }
+function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${perPage}.${page}`; }
+function readGalleryCache(page, perPage) {
+  try { const entry = JSON.parse(localStorage.getItem(galleryCacheKey(page, perPage)) || "null"); return entry && Array.isArray(entry.items) && Date.now() - entry.savedAt < GALLERY_CACHE_TTL ? entry : null; } catch { return null; }
+}
+function pruneGalleryCache() {
+  try {
+    const entries = Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX)).map((key) => { try { return { key, savedAt: JSON.parse(localStorage.getItem(key)).savedAt || 0 }; } catch { return { key, savedAt: 0 }; } }).sort((a, b) => b.savedAt - a.savedAt);
+    entries.forEach((entry, index) => { if (index >= GALLERY_CACHE_LIMIT || Date.now() - entry.savedAt >= GALLERY_CACHE_TTL) localStorage.removeItem(entry.key); });
+  } catch {}
+}
+function writeGalleryCache(page, perPage, items, hasNext) { try { localStorage.setItem(galleryCacheKey(page, perPage), JSON.stringify({ savedAt: Date.now(), items, hasNext })); pruneGalleryCache(); } catch {} }
+function invalidateGalleryCache() { try { Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX) || key.startsWith("image-bed.gallery-page1.")).forEach((key) => localStorage.removeItem(key)); } catch {} galleryPrefetches.clear(); }
+async function prefetchGallery(page, perPage) {
+  const key = galleryCacheKey(page, perPage); if (readGalleryCache(page, perPage) || galleryPrefetches.has(key)) return;
+  const task = api(`/api/history?page=${page}&per_page=${perPage}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
+  galleryPrefetches.set(key, task); await task;
+}
 
 async function loadGallery() {
   const requestId = ++state.galleryRequest;
@@ -311,9 +332,8 @@ async function loadGallery() {
   $("gallery-login").classList.add("hidden");
   $("gallery-empty").classList.add("hidden");
   $("select-mode").classList.add("hidden");
-  let cachedItems = null;
-  try { cachedItems = JSON.parse(localStorage.getItem(`image-bed.gallery-page1.${perPage}`) || "null"); } catch {}
-  if (cachedItems?.length && state.page === 1) { renderGallery(cachedItems); $("gallery-count").textContent = `本页 ${cachedItems.length} 张`; }
+  const cached = readGalleryCache(state.page, perPage);
+  if (cached) { renderGallery(cached.items); state.hasNext = cached.hasNext; $("gallery-count").textContent = `本页 ${cached.items.length} 张`; $("previous").disabled = state.page === 1; $("next").disabled = !cached.hasNext; $("page-label").textContent = `第 ${state.page} 页`; $("select-mode").classList.toggle("hidden", !cached.items.length); }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
     const data = await api(`/api/history?page=${state.page}&per_page=${perPage}`);
@@ -323,14 +343,15 @@ async function loadGallery() {
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
     $("page-label").textContent = `第 ${state.page} 页`;
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
-    if (state.page === 1) cacheGalleryItems(items, perPage);
+    writeGalleryCache(state.page, perPage, items, data.has_next);
+    if (data.has_next) { const nextPage = state.page + 1; const schedule = window.requestIdleCallback || ((callback) => setTimeout(callback, 150)); schedule(() => prefetchGallery(nextPage, perPage)); }
     renderGallery(items);
     $("select-mode").classList.toggle("hidden", !items.length);
     if (!items.length && state.page > 1) { state.page -= 1; loadGallery(); return; }
     if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); }
   } catch (error) {
     if (requestId !== state.galleryRequest) return;
-    if (cachedItems?.length && state.page === 1) { setStatusQuiet(); return; }
+    if (cached) { setStatusQuiet(); return; }
     if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
   }
@@ -352,7 +373,7 @@ async function deleteSelected() {
     } catch (error) { failed.push(...paths.slice(i, i + 5).map((path) => ({ path, message: error.message }))); }
   }
   if (failed.length) alert(`${deleted.length} 张已删除，${failed.length} 张失败：\n${failed.map((f) => `${f.path}：${f.message}`).join("\n")}`);
-  selection.clear(); try { localStorage.removeItem(`image-bed.gallery-page1.${perPageValue()}`); } catch {} await loadGallery();
+  selection.clear(); if (deleted.length) invalidateGalleryCache(); await loadGallery();
 }
 
 /* ---------- 大图查看 ---------- */
@@ -374,7 +395,7 @@ async function deleteImage(url, knownPath) {
     // 优先用列表带的真实仓库路径；从 URL 推导仅作兜底（剥掉 jsDelivr 的 gh/owner/repo@main 前缀）
     const derived = decodeURIComponent(new URL(url).pathname.replace(/^\//, "")).replace(/^gh\/[^/]+\/[^/]+@[^/]+\//, "");
     await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath || derived] }) });
-    closeLightbox(); loadGallery();
+    invalidateGalleryCache(); closeLightbox(); loadGallery();
   } catch (error) { alert(`删除失败：${error.message}`); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
