@@ -1,8 +1,9 @@
-import { readSession } from "../_lib/auth.js";
-import { loadState, updateState, setSetting } from "../_lib/state.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
+import { loadState, updateState, setSetting, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
-const EDITABLE = new Set(["hero_background_url", "daily_upload_limit", "max_file_mb"]);
+const EDITABLE = new Set(["hero_background_url", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
+function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
 const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100] };
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
@@ -17,15 +18,20 @@ export async function onRequest({ request, env }) {
       });
     }
     if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 GET 和 POST", 405);
-    const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+    let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+    if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
     const body = await request.json().catch(() => ({}));
     const entries = Object.entries(body || {}).filter(([key]) => EDITABLE.has(key));
     if (!entries.length) return error("SETTING_INVALID", "没有可更新的设置项", 400);
     for (const [key, value] of entries) {
       if (key === "hero_background_url") { if (typeof value !== "string" || value.length > 2048) return error("SETTING_INVALID", "背景图地址不合法", 400); }
+      else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
       else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${key === "daily_upload_limit" ? "每日上限" : "大小上限"}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
-    await updateState((s) => entries.forEach(([key, value]) => setSetting(s, key, value)), env);
+    const normalizedEntries = entries.map(([key, value]) => [key, key === "accelerator_base_url" ? value.trim().replace(/\/$/, "") : LIMITS[key] ? toNumber(value, LIMITS[key]) : value]);
+    await updateState((s) => normalizedEntries.forEach(([key, value]) => setSetting(s, key, value)), env);
+    invalidateHistoryCache();
+    try { const store = env.IMAGE_KV; if (store?.delete) await store.delete("history_cache"); } catch {}
     return json({ ok: true, settings: { ...(await loadState(env)).settings } });
   } catch (cause) { return error("SETTINGS_FAILED", cause?.message || "设置读取失败", 502); }
 }

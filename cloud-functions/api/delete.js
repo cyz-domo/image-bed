@@ -1,6 +1,6 @@
-import { readSession } from "../_lib/auth.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { readHistoryCache, writeHistoryCache } from "../_lib/state.js";
+import { readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
@@ -31,7 +31,8 @@ async function deleteOne(env, path) {
 
 export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
-  const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+  let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+  if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
     const body = await request.json().catch(() => ({}));
     // 兼容单个 path 与批量 paths
@@ -46,7 +47,7 @@ export async function onRequest({ request, env }) {
     const okPaths = results.filter((r) => r.ok).map((r) => r.path);
     if (okPaths.length) {
       try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
-      // 清掉已删图片的外链记录
+      invalidateHistoryCache();
       try { await updateState((s) => { for (const path of okPaths) delete s.links?.[path]; }, env); } catch {}
     }
     const failed = results.filter((r) => !r.ok);

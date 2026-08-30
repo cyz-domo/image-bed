@@ -17,8 +17,8 @@
   background: var(--bg);
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-size: 15px; line-height: 1.6; }
-body.has-hero { --bg: #ffffff; }
+body { margin: 0; font-size: 15px; line-height: 1.6; background: radial-gradient(circle at 12% 8%, #eef2ff 0, transparent 34%), linear-gradient(135deg, #fafafa 0%, #f5f7ff 100%); }
+body.has-hero { --bg: #ffffff; background: transparent; }
 
 /* ---------- 顶栏 ---------- */
 .topbar { position: sticky; top: 0; z-index: 20; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(6px); border-bottom: 1px solid var(--border); }
@@ -30,25 +30,32 @@ body.has-hero { --bg: #ffffff; }
 .nav-link.active { color: var(--text); font-weight: 600; }
 .account { margin-left: auto; display: flex; align-items: center; gap: 12px; min-height: 36px; }
 .account-name { font-size: 14px; color: var(--text-secondary); }
+.account-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 3px; }
+.account-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: #e5e7eb; }
+.account-avatar.avatar-fallback { position: relative; }
+.account-toggle:focus-visible, .icon-button:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- 布局 ---------- */
 .container { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; }
 .page.hidden, .hidden { display: none; }
 .home-grid { display: grid; grid-template-columns: 1fr 400px; gap: 56px; align-items: start; }
 
-h1 { margin: 0 0 16px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
+.home-copy { padding-top: 18px; }
+h1 { margin: 0 0 16px; font-size: clamp(30px, 4vw, 42px); font-weight: 750; letter-spacing: -0.035em; line-height: 1.18; }
 .lead { margin: 0 0 32px; color: var(--text-secondary); font-size: 16px; max-width: 42ch; }
 
 /* ---------- 背景图（可配置，独立固定图层铺满全屏） ---------- */
 .bg { display: none; }
-body.has-hero .bg { display: block; position: fixed; inset: 0; z-index: -2; background-size: cover; background-position: center; background-repeat: no-repeat; }
-body.has-hero::before { content: ""; position: fixed; inset: 0; z-index: -1; background: rgba(255, 255, 255, 0.82); }
+body.has-hero .bg { display: block; position: fixed; inset: 0; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }
+body.has-hero::before { content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none; background: rgba(255, 255, 255, 0.82); }
+body.has-hero .topbar, body.has-hero .container { position: relative; z-index: 2; }
 body.has-hero .topbar { background: rgba(255, 255, 255, 0.78); }
 body.has-hero .card, body.has-hero .ghost-button { background: rgba(255, 255, 255, 0.94); }
 body.has-hero .dropzone { background: rgba(255, 255, 255, 0.7); }
 
 /* ---------- 卡片 ---------- */
-.card { padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.card { padding: 24px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 14px; box-shadow: 0 18px 45px rgba(67, 56, 202, 0.08); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .card { background: #fff; } }
 .card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
 .muted-card p { margin: 0 0 16px; color: var(--text-secondary); font-size: 14px; }
 .home-action { display: grid; gap: 16px; }
@@ -89,8 +96,8 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .field-error { display: block; margin-top: 6px; font-size: 13px; color: var(--danger); }
 
 /* ---------- 上传区 ---------- */
-.dropzone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 20px; border: 1.5px dashed var(--border-strong); border-radius: var(--radius); background: transparent; cursor: pointer; text-align: center; transition: border-color var(--speed) ease-out, background var(--speed) ease-out; }
-.dropzone:hover, .dropzone.dragging { border-color: var(--accent); background: var(--accent-faint); }
+.dropzone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 44px 20px; border: 1.5px dashed #a5b4fc; border-radius: 12px; background: rgba(238, 242, 255, 0.42); cursor: pointer; text-align: center; transition: border-color var(--speed) ease-out, background var(--speed) ease-out, transform var(--speed) ease-out; }
+.dropzone:hover, .dropzone.dragging { border-color: var(--accent); background: rgba(224, 231, 255, 0.72); transform: translateY(-1px); }
 .dropzone input { display: none; }
 .dropzone-icon { color: var(--text-secondary); }
 .dropzone-title { font-size: 14px; font-weight: 500; }
@@ -108,6 +115,8 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .result img { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
 .result-info { min-width: 0; display: grid; gap: 8px; justify-items: start; }
 .url { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.result-actions { display: flex; gap: 6px; }
+.icon-button.copied { color: var(--accent); transform: scale(1.08); }
 
 /* ---------- 图片库 ---------- */
 .gallery-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
@@ -153,6 +162,12 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .lightbox-url { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lightbox-actions { display: flex; gap: 8px; flex: none; }
 .lightbox-actions .ghost-button { display: inline-block; text-decoration: none; }
+.lightbox-nav { position: absolute; top: 50%; z-index: 2; width: 44px; height: 56px; border: 0; border-radius: 10px; background: rgba(17, 24, 39, 0.45); color: #fff; font-size: 42px; line-height: 1; cursor: pointer; transform: translateY(-50%); }
+.lightbox-nav:hover { background: rgba(17, 24, 39, 0.7); }
+.lightbox-nav:disabled { opacity: 0.25; cursor: default; }
+.lightbox-prev { left: 20px; }
+.lightbox-next { right: 20px; }
+.lightbox-index { flex: none; font-size: 13px; color: var(--text-secondary); }
 .lightbox-close { position: absolute; top: 8px; right: 8px; z-index: 2; width: 36px; height: 36px; border: 0; border-radius: 6px; background: transparent; color: #fff; font-size: 20px; cursor: pointer; }
 .lightbox-close:hover { background: rgba(255, 255, 255, 0.12); }
 
@@ -160,10 +175,24 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 @media (max-width: 860px) {
   .home-grid { grid-template-columns: 1fr; gap: 32px; }
   .masonry { gap: 12px; }
+  .gallery-head { flex-wrap: wrap; align-items: center; }
+  .gallery-tools { margin-left: 0; width: 100%; flex-wrap: wrap; }
 }
 @media (max-width: 560px) {
   .container { padding: 32px 16px 64px; }
   h1 { font-size: 24px; }
   .topbar-inner { padding: 0 16px; gap: 16px; }
   .account-name { display: none; }
+  .pager { flex-wrap: wrap; gap: 10px; }
+  .pager-size { width: 100%; justify-content: center; }
+  .lightbox { padding: 12px; overflow-y: auto; }
+  .lightbox-nav { width: 36px; height: 44px; font-size: 32px; }
+  .lightbox-prev { left: 8px; }
+  .lightbox-next { right: 8px; }
+  .lightbox-actions { flex-wrap: wrap; }
+  .lightbox-url { width: 100%; }
+  .settings-pop { right: 16px; left: 16px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }

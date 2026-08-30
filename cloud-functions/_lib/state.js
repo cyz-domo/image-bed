@@ -76,9 +76,35 @@ export async function updateState(mutator, env) {
   return run;
 }
 
+export async function reserveDailyQuota(env, limit) {
+  const store = kv(env);
+  const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
+  if (!store || typeof increment !== "function") {
+    let result;
+    await updateState((state) => { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; if (state.daily.count >= limit) { result = { allowed: false, used: state.daily.count, remaining: 0, key, fallback: true }; return; } state.daily.count += 1; result = { allowed: true, used: state.daily.count, remaining: limit - state.daily.count, key, fallback: true }; }, env);
+    return result;
+  }
+  const key = `daily_uploads:${todayKey()}`;
+  const used = Number(await increment.call(store, key, 1));
+  if (!Number.isFinite(used) || used < 1) throw Object.assign(new Error("每日配额计数返回值无效"), { code: "QUOTA_STORE_UNAVAILABLE" });
+  if (used > limit) { try { await increment.call(store, key, -1); } catch {} return { allowed: false, used: used - 1, remaining: 0 }; }
+  return { allowed: true, used, remaining: limit - used, key };
+}
+
+export async function releaseDailyQuota(env, reservation) {
+  const store = kv(env);
+  const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
+  if (reservation?.key && typeof increment === "function") await increment.call(store, reservation.key, -1);
+}
+
 export function revokeSession(state, sessionId) { if (!state.revoked.includes(sessionId)) state.revoked.push(sessionId); if (state.revoked.length > 200) state.revoked.splice(0, state.revoked.length - 200); }
 export function bumpDailyCount(state) { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; state.daily.count += 1; return state.daily.count; }
 export function setSetting(state, name, value) { state.settings = { ...state.settings, [name]: value }; }
+
+const historyMemory = { expires: 0, items: [] };
+export function readMemoryHistory() { return Date.now() < historyMemory.expires ? historyMemory.items : null; }
+export function writeMemoryHistory(items, ttl = 60000) { historyMemory.items = items; historyMemory.expires = Date.now() + ttl; }
+export function invalidateHistoryCache() { historyMemory.items = []; historyMemory.expires = 0; }
 
 /* ---------- 历史列表 KV 缓存（跨实例共享，避免每次回源 GitHub tree） ---------- */
 export async function readHistoryCache(env) {
