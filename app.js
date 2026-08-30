@@ -180,7 +180,7 @@ async function uploadOne(file, done, total) {
         xhr.onerror = () => reject(new Error("网络错误"));
         xhr.send(form);
       });
-      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><div class="result-actions"><button class="icon-button" data-copy="${escapeHtml(data.url)}" title="复制链接" aria-label="复制链接">↗</button><button class="icon-button" data-copy="${escapeHtml(data.markdown)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button></div></div></div>`);
+      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><div class="result-actions"><button class="icon-button" data-copy="${escapeHtml(data.url)}" title="复制链接" aria-label="复制链接">🔗</button><button class="icon-button" data-copy="${escapeHtml(data.markdown)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button></div></div></div>`);
       $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
       return true;
     } catch (error) {
