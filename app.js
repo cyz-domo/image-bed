@@ -34,11 +34,13 @@ async function copyText(text, button, recordPath) {
 
 /* ---------- 账户 ---------- */
 const SESSION_CACHE_KEY = "image-bed.session-hint";
+function avatarFallback(login) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="#e0e7ff"/><text x="32" y="39" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#4338ca">${(login || "?")[0].toUpperCase()}</text></svg>`)}`; }
 function renderLoggedIn(login, avatarUrl) {
   state.loggedIn = true;
   const account = $("account");
   account.classList.remove("hidden");
-  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" src="${escapeHtml(avatarUrl || "")}" alt="" onerror="this.removeAttribute('src');this.classList.add('avatar-fallback')"><span class="account-name">@${escapeHtml(login)}</span></button>`;
+  const safeAvatar = /^https:\/\//.test(avatarUrl || "") ? avatarUrl : avatarFallback(login);
+  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" src="${escapeHtml(safeAvatar)}" alt="${escapeHtml(login)}" onerror="this.src='${avatarFallback(login)}';this.onerror=null"><span class="account-name">@${escapeHtml(login)}</span></button>`;
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
   $("settings-gear").classList.add("hidden");
@@ -59,7 +61,7 @@ async function loadAccount() {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login }));
-      if (!hint || hint.login !== data.login || !state.loggedIn) renderLoggedIn(data.login, data.avatar_url);
+      if (!hint || hint.login !== data.login || !state.loggedIn || !$("account-avatar")?.getAttribute("src")) renderLoggedIn(data.login, data.avatar_url);
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
       if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
