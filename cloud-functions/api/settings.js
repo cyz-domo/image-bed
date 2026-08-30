@@ -1,4 +1,4 @@
-import { readSession } from "../_lib/auth.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
 import { loadState, updateState, setSetting } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
@@ -17,7 +17,8 @@ export async function onRequest({ request, env }) {
       });
     }
     if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 GET 和 POST", 405);
-    const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+    let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+    if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
     const body = await request.json().catch(() => ({}));
     const entries = Object.entries(body || {}).filter(([key]) => EDITABLE.has(key));
     if (!entries.length) return error("SETTING_INVALID", "没有可更新的设置项", 400);

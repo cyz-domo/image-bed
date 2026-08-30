@@ -76,6 +76,23 @@ export async function updateState(mutator, env) {
   return run;
 }
 
+export async function reserveDailyQuota(env, limit) {
+  const store = kv(env);
+  const increment = store?.incr || store?.increment;
+  if (!store || typeof increment !== "function") throw Object.assign(new Error("每日配额存储不支持原子计数"), { code: "QUOTA_STORE_UNAVAILABLE" });
+  const key = `daily_uploads:${todayKey()}`;
+  const used = Number(await increment.call(store, key, 1));
+  if (!Number.isFinite(used) || used < 1) throw Object.assign(new Error("每日配额计数返回值无效"), { code: "QUOTA_STORE_UNAVAILABLE" });
+  if (used > limit) { try { await increment.call(store, key, -1); } catch {} return { allowed: false, used: used - 1, remaining: 0 }; }
+  return { allowed: true, used, remaining: limit - used, key };
+}
+
+export async function releaseDailyQuota(env, reservation) {
+  const store = kv(env);
+  const increment = store?.incr || store?.increment;
+  if (reservation?.key && typeof increment === "function") await increment.call(store, reservation.key, -1);
+}
+
 export function revokeSession(state, sessionId) { if (!state.revoked.includes(sessionId)) state.revoked.push(sessionId); if (state.revoked.length > 200) state.revoked.splice(0, state.revoked.length - 200); }
 export function bumpDailyCount(state) { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; state.daily.count += 1; return state.daily.count; }
 export function setSetting(state, name, value) { state.settings = { ...state.settings, [name]: value }; }

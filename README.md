@@ -52,8 +52,8 @@ cloud-functions/
 
 1. EdgeOne 控制台 → 存储空间（KV）→ 开通账户（免费额度 1GB）；
 2. 创建 Namespace（名称随意，如 `image-bed`）；
-3. 项目详情 → KV Storage → Bind Namespace，**环境变量名必须为 `IMAGE_KV`**（代码按此名读取，未绑定或不可用时自动回退，不会报错）；
-4. 重新部署后生效。KV 为最终一致（跨节点最多延迟约 60 秒），对单人图床无感。
+3. 项目详情 → KV Storage → Bind Namespace，**环境变量名必须为 `IMAGE_KV`**；每日配额要求该 KV 同时提供原子 `incr` 或 `increment` 方法，否则上传接口会在配额服务不可用时返回 503，避免并发绕过上限；
+4. 重新部署后生效。KV 为最终一致；配额计数使用按日期的原子键，吊销状态读取失败时敏感接口会 fail-closed。
 
 绑定 KV 的收益：上传/退出不再产生仓库提交；历史列表在所有边缘实例间共享缓存（10 分钟），`/api/history` 冷实例也快。
 

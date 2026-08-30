@@ -1,4 +1,4 @@
-import { readSession } from "../_lib/auth.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
 import { readHistoryCache, writeHistoryCache, updateState } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
@@ -31,7 +31,8 @@ async function deleteOne(env, path) {
 
 export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
-  const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+  let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+  if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
     const body = await request.json().catch(() => ({}));
     // 兼容单个 path 与批量 paths

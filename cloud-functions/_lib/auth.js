@@ -13,13 +13,13 @@ const bytes = (text) => {
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 export function publicOrigin(request, env) {
   const configured = runtimeEnv(env).PUBLIC_BASE_URL;
-  if (configured) return configured.replace(/\/+$/, "");
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0].trim();
-  const host = forwardedHost || request.headers.get("host");
-  // 未配置 PUBLIC_BASE_URL 时从请求 host 推导（仅允许 https）
-  if (host && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return `https://${host}`;
-  return "http://localhost:8088";
+  if (!configured) throw Object.assign(new Error("PUBLIC_BASE_URL 未配置"), { code: "PUBLIC_BASE_URL_MISSING" });
+  let parsed;
+  try { parsed = new URL(configured); } catch { throw Object.assign(new Error("PUBLIC_BASE_URL 必须是有效 URL"), { code: "PUBLIC_BASE_URL_INVALID" }); }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) throw Object.assign(new Error("PUBLIC_BASE_URL 必须是 HTTPS origin"), { code: "PUBLIC_BASE_URL_INVALID" });
+  return parsed.origin;
 }
+export function authUnavailable(cause) { return cause?.code === "AUTH_STORE_UNAVAILABLE"; }
 async function key(env) {
   const config = runtimeEnv(env);
   if (!config.SESSION_SECRET) throw new Error("SESSION_SECRET 未配置");
@@ -31,8 +31,10 @@ export async function readSession(request, env) {
   const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null;
   try {
     const data = JSON.parse(decoder.decode(bytes(payload))); if (data.exp <= Date.now()) return null;
-    // 吊销名单读取失败（KV/GitHub 抖动）时放行：会话本身已通过 HMAC 验签
-    if (data.sid) { try { if ((await loadState(env)).revoked.includes(data.sid)) return null; } catch {} }
+    if (data.sid) {
+      try { if ((await loadState(env)).revoked.includes(data.sid)) return null; }
+      catch (cause) { throw Object.assign(new Error("会话吊销状态暂不可用"), { code: "AUTH_STORE_UNAVAILABLE", cause }); }
+    }
     return data;
   } catch { return null; }
 }

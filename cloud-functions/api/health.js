@@ -18,6 +18,7 @@ export function onRequest({ env }) {
     GITHUB_REPO: present(config.GITHUB_REPO),
     ALLOWED_GITHUB_LOGIN: present(config.ALLOWED_GITHUB_LOGIN),
     SESSION_SECRET: present(config.SESSION_SECRET),
+    PUBLIC_BASE_URL: present(config.PUBLIC_BASE_URL),
   };
   const missing = Object.entries(checks).filter(([, value]) => !value).map(([name]) => name);
   return json({ ok: missing.length === 0, missing, checks }, missing.length === 0 ? 200 : 503, { "Cache-Control": "no-store" });

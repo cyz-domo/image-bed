@@ -1,11 +1,12 @@
-import { readSession } from "../_lib/auth.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
 import { loadState, updateState } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 const imagePath = /^images\/\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp)$/i;
 
 export async function onRequest({ request, env }) {
-  const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+  let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+  if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
   try {
     if (request.method === "GET") return json({ links: (await loadState(env)).links || {} });
     if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 GET 和 POST", 405);
