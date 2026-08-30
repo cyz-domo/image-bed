@@ -78,8 +78,12 @@ export async function updateState(mutator, env) {
 
 export async function reserveDailyQuota(env, limit) {
   const store = kv(env);
-  const increment = store?.incr || store?.increment;
-  if (!store || typeof increment !== "function") throw Object.assign(new Error("每日配额存储不支持原子计数"), { code: "QUOTA_STORE_UNAVAILABLE" });
+  const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
+  if (!store || typeof increment !== "function") {
+    let result;
+    await updateState((state) => { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; if (state.daily.count >= limit) { result = { allowed: false, used: state.daily.count, remaining: 0, key, fallback: true }; return; } state.daily.count += 1; result = { allowed: true, used: state.daily.count, remaining: limit - state.daily.count, key, fallback: true }; }, env);
+    return result;
+  }
   const key = `daily_uploads:${todayKey()}`;
   const used = Number(await increment.call(store, key, 1));
   if (!Number.isFinite(used) || used < 1) throw Object.assign(new Error("每日配额计数返回值无效"), { code: "QUOTA_STORE_UNAVAILABLE" });
@@ -89,7 +93,7 @@ export async function reserveDailyQuota(env, limit) {
 
 export async function releaseDailyQuota(env, reservation) {
   const store = kv(env);
-  const increment = store?.incr || store?.increment;
+  const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
   if (reservation?.key && typeof increment === "function") await increment.call(store, reservation.key, -1);
 }
 

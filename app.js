@@ -39,6 +39,9 @@ async function copyText(text, button, recordPath) {
 /* ---------- 账户 ---------- */
 const SESSION_CACHE_KEY = "image-bed.session-hint";
 function avatarFallback(login) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="#e0e7ff"/><text x="32" y="39" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#4338ca">${(login || "?")[0].toUpperCase()}</text></svg>`)}`; }
+function updateQuotaDisplay(remaining, limit) { const el = $("quota-status"); if (el && Number.isFinite(remaining)) { el.hidden = false; el.textContent = `今日剩余 ${remaining} / ${limit} 张`; } }
+async function loadQuota() { try { const data = await api("/api/quota"); updateQuotaDisplay(data.remaining, data.limit); } catch { const el = $("quota-status"); if (el) { el.hidden = false; el.textContent = "今日额度暂不可用"; } } }
+
 function renderLoggedIn(login, avatarUrl) {
   state.loggedIn = true;
   state.login = login;
@@ -52,6 +55,7 @@ function renderLoggedIn(login, avatarUrl) {
   toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden"))); };
   $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); invalidateGalleryCache(); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
   loadSettings();
+  loadQuota();
   if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
 }
 
@@ -197,6 +201,7 @@ async function uploadOne(file, done, total) {
       });
       $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><div class="result-actions"><button class="icon-button" data-copy="${escapeHtml(data.url)}" title="复制链接" aria-label="复制链接">🔗</button><button class="icon-button" data-copy="${escapeHtml(data.markdown)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button></div></div></div>`);
       $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
+      updateQuotaDisplay(data.daily_remaining, Number($("setting-daily-limit").value) || 100);
       return true;
     } catch (error) {
       // 平台偶发的请求体竞态（503 UPLOAD_RETRY）自动重试
