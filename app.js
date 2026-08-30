@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1 };
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
@@ -382,31 +382,34 @@ async function deleteSelected() {
 }
 
 /* ---------- 大图查看 ---------- */
+async function getGalleryPage(page, perPage) {
+  const cached = readGalleryCache(page, perPage);
+  if (cached) return { items: cached.items, has_next: cached.hasNext, cached: true };
+  const key = galleryCacheKey(page, perPage);
+  if (galleryPrefetches.has(key)) return galleryPrefetches.get(key);
+  const task = api(`/api/history?page=${page}&per_page=${perPage}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next); return data; }).finally(() => galleryPrefetches.delete(key));
+  galleryPrefetches.set(key, task); return task;
+}
+async function navigateLightbox(direction) {
+  if (state.lightboxLoading) return;
+  const items = state.lightboxItems || [];
+  if (direction > 0 && state.lightboxIndex < items.length - 1) { state.lightboxIndex += 1; updateLightbox(); return; }
+  if (direction < 0 && state.lightboxIndex > 0) { state.lightboxIndex -= 1; updateLightbox(); return; }
+  const page = state.lightboxPage + direction; if (page < 1 || (direction > 0 && !state.lightboxHasNext)) return;
+  state.lightboxLoading = true; updateLightboxControls();
+  try { const data = await getGalleryPage(page, state.lightboxPerPage); if (!data.items.length) throw new Error("没有更多图片"); state.lightboxPage = page; state.lightboxItems = data.items; state.lightboxHasNext = data.has_next; state.lightboxIndex = direction > 0 ? 0 : data.items.length - 1; updateLightbox(); } catch { showToast("加载更多图片失败"); } finally { state.lightboxLoading = false; updateLightboxControls(); }
+}
+function updateLightboxControls() { $("lightbox-prev").disabled = state.lightboxLoading || (state.lightboxIndex <= 0 && state.lightboxPage <= 1); $("lightbox-next").disabled = state.lightboxLoading || (state.lightboxIndex >= (state.lightboxItems || []).length - 1 && !state.lightboxHasNext); }
+
 function openLightbox(url, path) {
-  const items = state.pageItems || [];
-  const index = items.findIndex((item) => item.path === path || item.url === url);
+  const items = state.pageItems || [], index = items.findIndex((item) => item.path === path || item.url === url);
   if (index < 0) { showToast("图片不在当前页面"); return; }
-  state.lightboxIndex = index;
-  state.lightboxOpener = document.activeElement;
-  updateLightbox();
-  $("lightbox").classList.remove("hidden");
-  $("lightbox-close").focus();
+  state.lightboxItems = items; state.lightboxPage = state.page; state.lightboxPerPage = perPageValue(); state.lightboxHasNext = state.hasNext; state.lightboxIndex = index; state.lightboxOpener = document.activeElement; updateLightbox(); $("lightbox").classList.remove("hidden"); $("lightbox-close").focus();
 }
 function updateLightbox() {
-  const item = (state.pageItems || [])[state.lightboxIndex]; if (!item) return;
-  const url = item.url, path = item.path;
-  const image = $("lightbox-image"), status = $("lightbox-status");
-  image.onload = () => { status.hidden = true; };
-  image.onerror = () => { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; };
-  status.hidden = false; status.textContent = "图片加载中…";
-  image.src = url; image.alt = path || "预览图片"; $("lightbox-url").textContent = url;
-  $("lightbox-index").textContent = `${state.lightboxIndex + 1} / ${state.pageItems.length}`;
-  $("lightbox-prev").disabled = state.lightboxIndex <= 0; $("lightbox-next").disabled = state.lightboxIndex >= state.pageItems.length - 1;
-  $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path);
-  $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path);
-  $("lightbox-open").href = url;
-  $("lightbox-delete").style.display = state.loggedIn ? "" : "none";
-  $("lightbox-delete").onclick = () => deleteImage(url, path);
+  const item = (state.lightboxItems || [])[state.lightboxIndex]; if (!item) return; const url = item.url, path = item.path;
+  const image = $("lightbox-image"), status = $("lightbox-status"), token = (state.lightboxImageToken = (state.lightboxImageToken || 0) + 1); image.src = ""; image.hidden = true; status.hidden = false; status.textContent = state.lightboxLoading ? "正在加载更多图片…" : "图片加载中…";
+  image.onload = () => { if (token === state.lightboxImageToken) { image.hidden = false; status.hidden = true; } }; image.onerror = () => { if (token === state.lightboxImageToken) { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; } }; image.src = url; image.alt = path || "预览图片"; $("lightbox-url").textContent = url; $("lightbox-index").textContent = `${state.lightboxPage} 页 · ${state.lightboxIndex + 1} / ${state.lightboxItems.length}`; updateLightboxControls(); $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path); $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path); $("lightbox-open").href = url; $("lightbox-delete").style.display = state.loggedIn ? "" : "none"; $("lightbox-delete").onclick = () => deleteImage(url, path);
 }
 async function deleteImage(url, knownPath) {
   if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
@@ -423,10 +426,10 @@ async function deleteImage(url, knownPath) {
 }
 function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
 $("lightbox-close").onclick = closeLightbox;
-$("lightbox-prev").onclick = () => { if (state.lightboxIndex > 0) { state.lightboxIndex -= 1; updateLightbox(); } };
-$("lightbox-next").onclick = () => { if (state.lightboxIndex < (state.pageItems || []).length - 1) { state.lightboxIndex += 1; updateLightbox(); } };
+$("lightbox-prev").onclick = () => navigateLightbox(-1);
+$("lightbox-next").onclick = () => navigateLightbox(1);
 document.addEventListener("keydown", (event) => { if (event.key !== "Tab" || $("lightbox").classList.contains("hidden")) return; const focusable = [...$("lightbox").querySelectorAll("button, a[href]")].filter((node) => !node.disabled && node.offsetParent !== null); if (!focusable.length) return; const index = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (index <= 0 ? focusable.length - 1 : index - 1) : (index === focusable.length - 1 ? 0 : index + 1); event.preventDefault(); focusable[next].focus(); });
-document.addEventListener("keydown", (event) => { if (!$("lightbox").classList.contains("hidden")) { if (event.key === "ArrowLeft" && state.lightboxIndex > 0) { event.preventDefault(); state.lightboxIndex -= 1; updateLightbox(); } if (event.key === "ArrowRight" && state.lightboxIndex < (state.pageItems || []).length - 1) { event.preventDefault(); state.lightboxIndex += 1; updateLightbox(); } } if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
+document.addEventListener("keydown", (event) => { if (!$("lightbox").classList.contains("hidden")) { if (event.key === "ArrowLeft") { event.preventDefault(); navigateLightbox(-1); } if (event.key === "ArrowRight") { event.preventDefault(); navigateLightbox(1); } } if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
 
 /* ---------- 标签页 ---------- */
 function switchTab(tab) {
