@@ -110,8 +110,10 @@
       <div class="lightbox-backdrop"></div>
       <figure class="lightbox-body">
         <img id="lightbox-image" src="" alt="" />
+        <p id="lightbox-status" class="lightbox-status" role="status" hidden>图片加载中…</p>
         <figcaption class="lightbox-caption">
           <span id="lightbox-url" class="lightbox-url"></span>
+          <span id="lightbox-index" class="lightbox-index" aria-live="polite"></span>
           <div class="lightbox-actions">
             <button id="lightbox-copy" class="ghost-button">复制链接</button>
             <button id="lightbox-copy-md" class="ghost-button">复制 Markdown</button>
@@ -120,6 +122,8 @@
           </div>
         </figcaption>
       </figure>
+      <button id="lightbox-prev" class="lightbox-nav lightbox-prev" aria-label="上一张" title="上一张">‹</button>
+      <button id="lightbox-next" class="lightbox-nav lightbox-next" aria-label="下一张" title="下一张">›</button>
       <button id="lightbox-close" class="lightbox-close" aria-label="关闭">&times;</button>
     </div>
     <script type="module" src="app.js"></script>

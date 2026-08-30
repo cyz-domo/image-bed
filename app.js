@@ -383,15 +383,30 @@ async function deleteSelected() {
 
 /* ---------- 大图查看 ---------- */
 function openLightbox(url, path) {
+  const items = state.pageItems || [];
+  const index = items.findIndex((item) => item.path === path || item.url === url);
+  if (index < 0) { showToast("图片不在当前页面"); return; }
+  state.lightboxIndex = index;
   state.lightboxOpener = document.activeElement;
-  $("lightbox-image").src = url; $("lightbox-image").alt = path || "预览图片"; $("lightbox-url").textContent = url;
+  updateLightbox();
+  $("lightbox").classList.remove("hidden");
+  $("lightbox-close").focus();
+}
+function updateLightbox() {
+  const item = (state.pageItems || [])[state.lightboxIndex]; if (!item) return;
+  const url = item.url, path = item.path;
+  const image = $("lightbox-image"), status = $("lightbox-status");
+  image.onload = () => { status.hidden = true; };
+  image.onerror = () => { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; };
+  status.hidden = false; status.textContent = "图片加载中…";
+  image.src = url; image.alt = path || "预览图片"; $("lightbox-url").textContent = url;
+  $("lightbox-index").textContent = `${state.lightboxIndex + 1} / ${state.pageItems.length}`;
+  $("lightbox-prev").disabled = state.lightboxIndex <= 0; $("lightbox-next").disabled = state.lightboxIndex >= state.pageItems.length - 1;
   $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path);
   $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path);
   $("lightbox-open").href = url;
   $("lightbox-delete").style.display = state.loggedIn ? "" : "none";
   $("lightbox-delete").onclick = () => deleteImage(url, path);
-  $("lightbox").classList.remove("hidden");
-  $("lightbox-close").focus();
 }
 async function deleteImage(url, knownPath) {
   if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
@@ -399,15 +414,19 @@ async function deleteImage(url, knownPath) {
   try {
     // 优先用列表带的真实仓库路径；从 URL 推导仅作兜底（剥掉 jsDelivr 的 gh/owner/repo@main 前缀）
     const derived = decodeURIComponent(new URL(url).pathname.replace(/^\//, "")).replace(/^gh\/[^/]+\/[^/]+@[^/]+\//, "");
-    await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath || derived] }) });
+    const data = await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: [knownPath || derived] }) });
+    const targetPath = knownPath || derived;
+    if (!(data.deleted || []).includes(targetPath) || (data.failed || []).some((item) => item.path === targetPath)) throw new Error(data.failed?.find((item) => item.path === targetPath)?.message || "图片删除未完成");
     invalidateGalleryCache(); closeLightbox(); loadGallery();
   } catch (error) { alert(`删除失败：${error.message}`); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
 function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
 $("lightbox-close").onclick = closeLightbox;
-document.querySelector(".lightbox-backdrop").onclick = closeLightbox;
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
+$("lightbox-prev").onclick = () => { if (state.lightboxIndex > 0) { state.lightboxIndex -= 1; updateLightbox(); } };
+$("lightbox-next").onclick = () => { if (state.lightboxIndex < (state.pageItems || []).length - 1) { state.lightboxIndex += 1; updateLightbox(); } };
+document.addEventListener("keydown", (event) => { if (event.key !== "Tab" || $("lightbox").classList.contains("hidden")) return; const focusable = [...$("lightbox").querySelectorAll("button, a[href]")].filter((node) => !node.disabled && node.offsetParent !== null); if (!focusable.length) return; const index = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (index <= 0 ? focusable.length - 1 : index - 1) : (index === focusable.length - 1 ? 0 : index + 1); event.preventDefault(); focusable[next].focus(); });
+document.addEventListener("keydown", (event) => { if (!$("lightbox").classList.contains("hidden")) { if (event.key === "ArrowLeft" && state.lightboxIndex > 0) { event.preventDefault(); state.lightboxIndex -= 1; updateLightbox(); } if (event.key === "ArrowRight" && state.lightboxIndex < (state.pageItems || []).length - 1) { event.preventDefault(); state.lightboxIndex += 1; updateLightbox(); } } if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
 
 /* ---------- 标签页 ---------- */
 function switchTab(tab) {
