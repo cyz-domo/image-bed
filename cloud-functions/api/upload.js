@@ -19,7 +19,7 @@ export async function onRequest({ request, env }) {
   try {
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
-    if (!state) await updateState(() => {}, env);
+    if (!state) { await updateState(() => {}, env); state = await loadState(env); }
     // 配额必须由支持原子递增的 KV 预占；不支持时拒绝上传，避免并发绕过上限
     const limit = Number(state.settings?.daily_upload_limit || env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     const maxBytes = Math.round(Number(state.settings?.max_file_mb || env.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);

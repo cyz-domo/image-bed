@@ -15,9 +15,10 @@ async function api(path, options) {
 }
 
 let toastTimer = null;
-function showToast(message) {
+function showToast(message, error = false) {
   let toast = document.querySelector(".toast");
-  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; document.body.appendChild(toast); }
+  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; toast.setAttribute("role", "status"); toast.setAttribute("aria-live", "polite"); document.body.appendChild(toast); }
+  toast.classList.toggle("error", error);
   toast.textContent = message;
   requestAnimationFrame(() => toast.classList.add("show"));
   clearTimeout(toastTimer);
@@ -146,19 +147,21 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const errorEl = $("setting-hero-error"); errorEl.hidden = true;
+  const errorEl = $("setting-hero-error"), acceleratorError = $("setting-accelerator-error"); errorEl.hidden = true; acceleratorError.hidden = true;
   const heroUrl = $("setting-hero-url").value.trim();
-  if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; return; }
+  const acceleratorUrl = $("setting-accelerator-url").value.trim();
+  const saveButton = $("setting-save"); if (saveButton.disabled) return; saveButton.disabled = true;
+  if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; saveButton.disabled = false; return; }
+  if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: $("setting-accelerator-url").value.trim(), daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: acceleratorUrl, daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
-    await loadHero(data.settings.hero_background_url || null);
-    invalidateGalleryCache();
-    $("setting-daily-limit").value = data.settings.daily_upload_limit;
-    $("setting-max-size").value = data.settings.max_file_mb;
+    await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
+    $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
-  } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; }
+  } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; showToast(error.message || "设置保存失败", true); }
+  finally { saveButton.disabled = false; }
 }
 
 /* ---------- 上传（支持批量，并发 2） ---------- */

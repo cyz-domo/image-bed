@@ -28,7 +28,7 @@ export async function onRequest({ request, env }) {
       else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
       else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${key === "daily_upload_limit" ? "每日上限" : "大小上限"}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
-    const normalizedEntries = entries.map(([key, value]) => [key, key === "accelerator_base_url" ? value.trim().replace(/\/$/, "") : value]);
+    const normalizedEntries = entries.map(([key, value]) => [key, key === "accelerator_base_url" ? value.trim().replace(/\/$/, "") : LIMITS[key] ? toNumber(value, LIMITS[key]) : value]);
     await updateState((s) => normalizedEntries.forEach(([key, value]) => setSetting(s, key, value)), env);
     invalidateHistoryCache();
     try { const store = env.IMAGE_KV; if (store?.delete) await store.delete("history_cache"); } catch {}

@@ -42,6 +42,8 @@ export async function onRequest({ request, env }) {
       if (cached && Date.now() - cached.savedAt < KV_CACHE_TTL_MS) { items = cached.items; writeMemoryHistory(items); }
       else { items = await fetchFromGitHub(config, settings); await writeHistoryCache(config, items); writeMemoryHistory(items); }
     }
+    const normalizeItems = (list) => list.map((item) => ({ ...item, url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
+    items = normalizeItems(items);
     const start = (page - 1) * perPage; const slice = items.slice(start, start + perPage);
     return json({ items: slice, page, per_page: perPage, has_next: start + perPage < items.length }, 200, { "Cache-Control": "no-store" });
   } catch { return error("HISTORY_FAILED", "历史记录暂时无法读取", 502); }
