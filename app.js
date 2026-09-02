@@ -54,13 +54,13 @@ function confirmAsync(message) {
   });
 }
 
-async function copyText(text, button, recordPath) {
+async function copyText(text, button, recordPath, kind = "内容") {
   if (button?.disabled) return;
   if (button) button.disabled = true;
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
     else { const input = document.createElement("textarea"); input.value = text; input.style.position = "fixed"; input.style.opacity = "0"; document.body.append(input); input.select(); if (!document.execCommand("copy")) throw new Error("复制失败"); input.remove(); }
-    showToast("已复制到剪贴板");
+    showToast(`${kind}已复制`);
     if (recordPath) api("/api/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: recordPath }) }).catch(() => {});
   } catch { showToast("复制失败，请检查剪贴板权限"); }
   finally { if (button) { button.disabled = false; button.classList.add("copied"); setTimeout(() => button.classList.remove("copied"), 700); } }
@@ -107,7 +107,12 @@ async function loadAccount() {
       if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
     }
   } catch (error) {
-    if (!hint) {
+    if (hint) {
+      state.loggedIn = false; state.login = null;
+      account.innerHTML = '<a class="primary-button" href="/api/auth/login">重新登录</a>';
+      $("upload-panel").classList.add("hidden"); $("upload-cta").classList.remove("hidden");
+      showToast("登录状态暂时无法确认，请重新登录", true);
+    } else {
       account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
       console.warn("auth/me:", error.message);
     }
@@ -350,9 +355,10 @@ function renderGallery(items) {
     heights[target] += 1; // 无固定比例，用张数近似均衡
   }
   const iconButtons = (item) => {
-    const safeUrl = safeRemoteUrl(item.url); return `<button class="icon-button" data-view="${escapeHtml(safeUrl)}" data-view-path="${escapeHtml(item.path)}" title="查看大图" aria-label="查看大图">查看</button>
-    <button class="icon-button" data-copy="${escapeHtml(safeUrl)}" data-copy-path="${escapeHtml(item.path)}" title="复制链接" aria-label="复制链接">🔗</button>
-    <button class="icon-button" data-copy="${escapeHtml(`![image](${safeUrl})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button>`;
+    const safeUrl = safeRemoteUrl(item.url);
+    return `<button class="icon-button" data-view="${escapeHtml(safeUrl)}" data-view-path="${escapeHtml(item.path)}" title="查看大图" aria-label="查看大图"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2.5 7V4.5A2 2 0 0 1 4.5 2.5H7M13 2.5h2.5a2 2 0 0 1 2 2V7M17.5 13v2.5a2 2 0 0 1-2 2H13M7 17.5H4.5a2 2 0 0 1-2-2V13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button class="icon-button" data-copy="${escapeHtml(safeUrl)}" data-copy-path="${escapeHtml(item.path)}" title="复制链接" aria-label="复制链接"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M8.5 12.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 1 0-5-5l-1.5 1.5M11.5 7.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 1 0 5 5l1.5-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+    <button class="icon-button" data-copy="${escapeHtml(`![image](${safeUrl})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="1.5" y="4.5" width="17" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 12.5v-5l2.5 3 2.5-3v5M13 7.5v5M13 12.5l-1.8-1.8M13 12.5l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   };
   const card = (item) => {
     const imageUrl = safeRemoteUrl(item.thumb || item.url);
@@ -363,7 +369,7 @@ function renderGallery(items) {
   };
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view, button.dataset.viewPath));
-  $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button, button.dataset.copyPath));
+  $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button, button.dataset.copyPath, button.title === "复制 Markdown" ? "Markdown" : "链接"));
   // 选择模式下点卡片任意位置切换选中
   if (selectMode()) $("gallery").querySelectorAll(".shot.selectable").forEach((node) => node.onclick = () => { const path = node.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
   updateSelectionUi();
@@ -501,7 +507,11 @@ document.addEventListener("keydown", (event) => { if (!$("lightbox").classList.c
 /* ---------- 标签页 ---------- */
 function switchTab(tab) {
   state.tab = tab;
-  for (const node of document.querySelectorAll(".nav-link")) node.classList.toggle("active", node.dataset.tab === tab);
+  for (const node of document.querySelectorAll(".nav-link")) {
+    const selected = node.dataset.tab === tab;
+    node.classList.toggle("active", selected);
+    node.setAttribute("aria-selected", String(selected));
+  }
   $("page-home").classList.toggle("hidden", tab !== "home");
   $("page-gallery").classList.toggle("hidden", tab !== "gallery");
   history.replaceState(null, "", tab === "home" ? "/" : "/#gallery");

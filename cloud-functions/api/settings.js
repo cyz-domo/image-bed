@@ -3,7 +3,7 @@ import { loadState, updateState, setSetting, invalidateHistoryCache } from "../_
 import { error, json } from "../_lib/http.js";
 
 const EDITABLE = new Set(["hero_background_url", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
-function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
+function validHeroUrl(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && value.trim().length <= 2048; } catch { return false; } }
 const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100] };
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
@@ -24,7 +24,7 @@ export async function onRequest({ request, env }) {
     const entries = Object.entries(body || {}).filter(([key]) => EDITABLE.has(key));
     if (!entries.length) return error("SETTING_INVALID", "没有可更新的设置项", 400);
     for (const [key, value] of entries) {
-      if (key === "hero_background_url") { if (typeof value !== "string" || value.length > 2048) return error("SETTING_INVALID", "背景图地址不合法", 400); }
+      if (key === "hero_background_url") { if (typeof value !== "string" || !validHeroUrl(value)) return error("SETTING_INVALID", "背景图地址必须是 https:// 开头的地址", 400); }
       else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
       else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${key === "daily_upload_limit" ? "每日上限" : "大小上限"}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
