@@ -20,37 +20,28 @@ async function api(path, options) {
 let toastTimer = null;
 function showToast(message, error = false) {
   let toast = document.querySelector(".toast");
-  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; toast.setAttribute("role", "status"); toast.setAttribute("aria-live", "polite"); document.body.appendChild(toast); }
-  toast.classList.toggle("error", error);
-  toast.textContent = message;
-  requestAnimationFrame(() => toast.classList.add("show"));
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
+  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; toast.setAttribute("role", "status"); document.body.appendChild(toast); }
+  toast.classList.toggle("error", error); toast.setAttribute("aria-live", error ? "assertive" : "polite"); toast.textContent = message;
+  requestAnimationFrame(() => toast.classList.add("show")); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
+}
+function focusableIn(container) { return container ? [...container.querySelectorAll("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])")].filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null) : []; }
+function trapFocus(container, event) {
+  if (event.key !== "Tab") return false;
+  const nodes = focusableIn(container); if (!nodes.length) return false;
+  const index = nodes.indexOf(document.activeElement); const next = event.shiftKey ? (index <= 0 ? nodes.length - 1 : index - 1) : (index === nodes.length - 1 ? 0 : index + 1);
+  event.preventDefault(); nodes[next].focus(); return true;
 }
 
 // 非阻塞确认弹框，返回 Promise<boolean>
 function confirmAsync(message) {
   return new Promise((resolve) => {
-    const modal = $("#confirm-modal");
-    if (!modal) { resolve(false); return; }
-    const msgEl = modal.querySelector(".confirm-message");
-    const yesBtn = $("#confirm-yes");
-    const noBtn = $("#confirm-no");
-    msgEl.textContent = message;
-    modal.classList.remove("hidden");
-    yesBtn.focus();
-    const clean = () => {
-      modal.classList.add("hidden");
-      yesBtn.removeEventListener("click", onYes);
-      noBtn.removeEventListener("click", onNo);
-      document.removeEventListener("keydown", onKey);
-    };
-    const onYes = () => { clean(); resolve(true); };
-    const onNo = () => { clean(); resolve(false); };
-    const onKey = (e) => { if (e.key === "Escape") { clean(); resolve(false); } };
-    yesBtn.addEventListener("click", onYes);
-    noBtn.addEventListener("click", onNo);
-    document.addEventListener("keydown", onKey);
+    const modal = $("confirm-modal"), msgEl = modal?.querySelector(".confirm-message"), yesBtn = $("confirm-yes"), noBtn = $("confirm-no");
+    if (!modal || !msgEl || !yesBtn || !noBtn) { resolve(false); return; }
+    const opener = document.activeElement; msgEl.textContent = message; modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false"); noBtn.focus();
+    const clean = () => { modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true"); yesBtn.removeEventListener("click", onYes); noBtn.removeEventListener("click", onNo); modal.querySelector(".confirm-backdrop")?.removeEventListener("click", onNo); document.removeEventListener("keydown", onKey); opener?.focus?.(); };
+    const onYes = () => { clean(); resolve(true); }, onNo = () => { clean(); resolve(false); };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); onNo(); } else trapFocus(modal, e); };
+    yesBtn.addEventListener("click", onYes); noBtn.addEventListener("click", onNo); modal.querySelector(".confirm-backdrop")?.addEventListener("click", onNo); document.addEventListener("keydown", onKey);
   });
 }
 
@@ -84,7 +75,7 @@ function renderLoggedIn(login, avatarUrl) {
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
-  toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden"))); };
+  toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); const opening = panel.classList.contains("hidden"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(opening)); if (opening) { state.settingsOpener = toggle; $("setting-hero-url")?.focus(); } else toggle.focus(); };
   $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); invalidateGalleryCache(); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
   loadSettings();
   loadQuota();
@@ -478,7 +469,7 @@ function updateLightboxControls() { $("lightbox-prev").disabled = state.lightbox
 function openLightbox(url, path) {
   const items = state.pageItems || [], index = items.findIndex((item) => item.path === path || item.url === url);
   if (index < 0) { showToast("图片不在当前页面"); return; }
-  state.lightboxItems = items; state.lightboxPage = state.page; state.lightboxPerPage = perPageValue(); state.lightboxHasNext = state.hasNext; state.lightboxIndex = index; state.lightboxOpener = document.activeElement; updateLightbox(); $("lightbox").classList.remove("hidden"); $("lightbox-close").focus();
+  state.lightboxItems = items; state.lightboxPage = state.page; state.lightboxPerPage = perPageValue(); state.lightboxHasNext = state.hasNext; state.lightboxIndex = index; state.lightboxOpener = document.activeElement; updateLightbox(); $("lightbox").classList.remove("hidden"); $("lightbox").setAttribute("aria-hidden", "false"); $("lightbox-close").focus();
 }
 function updateLightbox() {
   const item = (state.lightboxItems || [])[state.lightboxIndex]; if (!item) return; const url = item.url, path = item.path;
@@ -497,31 +488,39 @@ async function deleteImage(url, knownPath) {
   } catch (error) { showToast(`删除失败：${error.message}`, true); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
-function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
+function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); $("lightbox").setAttribute("aria-hidden", "true"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
 $("lightbox-close").onclick = closeLightbox;
 $("lightbox-prev").onclick = () => navigateLightbox(-1);
 $("lightbox-next").onclick = () => navigateLightbox(1);
-document.addEventListener("keydown", (event) => { if (event.key !== "Tab" || $("lightbox").classList.contains("hidden")) return; const focusable = [...$("lightbox").querySelectorAll("button, a[href]")].filter((node) => !node.disabled && node.offsetParent !== null); if (!focusable.length) return; const index = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (index <= 0 ? focusable.length - 1 : index - 1) : (index === focusable.length - 1 ? 0 : index + 1); event.preventDefault(); focusable[next].focus(); });
+document.addEventListener("keydown", (event) => { if (event.key !== "Tab" || $("lightbox").classList.contains("hidden")) return; trapFocus($("lightbox"), event); });
 document.addEventListener("keydown", (event) => { if (!$("lightbox").classList.contains("hidden")) { if (event.key === "ArrowLeft") { event.preventDefault(); navigateLightbox(-1); } if (event.key === "ArrowRight") { event.preventDefault(); navigateLightbox(1); } } if (event.key === "Escape") { if (!$("lightbox").classList.contains("hidden")) closeLightbox(); if (!$("settings-panel").classList.contains("hidden")) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); $("account-toggle")?.focus(); } } });
 
 /* ---------- 标签页 ---------- */
-function switchTab(tab) {
+function switchTab(tab, moveFocus = false) {
   state.tab = tab;
-  for (const node of document.querySelectorAll(".nav-link")) {
+  const tabs = [...document.querySelectorAll(".nav-link")];
+  for (const node of tabs) {
     const selected = node.dataset.tab === tab;
-    node.classList.toggle("active", selected);
-    node.setAttribute("aria-selected", String(selected));
+    node.classList.toggle("active", selected); node.setAttribute("aria-selected", String(selected)); node.setAttribute("tabindex", selected ? "0" : "-1");
   }
-  $("page-home").classList.toggle("hidden", tab !== "home");
-  $("page-gallery").classList.toggle("hidden", tab !== "gallery");
+  if (moveFocus) tabs.find((node) => node.dataset.tab === tab)?.focus();
+  $("page-home").classList.toggle("hidden", tab !== "home"); $("page-gallery").classList.toggle("hidden", tab !== "gallery");
   history.replaceState(null, "", tab === "home" ? "/" : "/#gallery");
-  if (tab === "gallery") {
-    // 先按当前登录态分流，未登录不发起列表请求
-    if (state.loggedIn) loadGallery();
-    else { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
-  }
+  if (tab === "gallery") { if (state.loggedIn) loadGallery(); else { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); } }
 }
-for (const node of document.querySelectorAll(".nav-link")) node.onclick = () => switchTab(node.dataset.tab);
+for (const node of document.querySelectorAll(".nav-link")) {
+  node.onclick = () => switchTab(node.dataset.tab);
+  node.onkeydown = (event) => {
+    const tabs = [...document.querySelectorAll(".nav-link")], index = tabs.indexOf(node);
+    let next = index;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else return;
+    event.preventDefault(); switchTab(tabs[next].dataset.tab, true);
+  };
+}
 $("empty-go").onclick = () => switchTab("home");
 $("select-mode").onclick = () => setSelectMode(true);
 $("select-exit").onclick = () => setSelectMode(false);
