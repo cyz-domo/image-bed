@@ -137,5 +137,17 @@
       <button id="lightbox-close" class="lightbox-close" aria-label="关闭">&times;</button>
     </div>
     <script type="module" src="app.js"></script>
+
+<div id="confirm-modal" class="confirm-modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="confirm-backdrop"></div>
+  <div class="confirm-box">
+    <h2 id="confirm-title" class="visually-hidden">确认操作</h2>
+    <p class="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="confirm-yes" class="ghost-button danger">确定</button>
+      <button id="confirm-no" class="ghost-button">取消</button>
+    </div>
+  </div>
+</div>
   </body>
 </html>

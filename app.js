@@ -25,6 +25,32 @@ function showToast(message, error = false) {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
 }
 
+// 非阻塞确认弹框，返回 Promise<boolean>
+function confirmAsync(message) {
+  return new Promise((resolve) => {
+    const modal = $("#confirm-modal");
+    if (!modal) { resolve(false); return; }
+    const msgEl = modal.querySelector(".confirm-message");
+    const yesBtn = $("#confirm-yes");
+    const noBtn = $("#confirm-no");
+    msgEl.textContent = message;
+    modal.classList.remove("hidden");
+    yesBtn.focus();
+    const clean = () => {
+      modal.classList.add("hidden");
+      yesBtn.removeEventListener("click", onYes);
+      noBtn.removeEventListener("click", onNo);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onYes = () => { clean(); resolve(true); };
+    const onNo = () => { clean(); resolve(false); };
+    const onKey = (e) => { if (e.key === "Escape") { clean(); resolve(false); } };
+    yesBtn.addEventListener("click", onYes);
+    noBtn.addEventListener("click", onNo);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
 async function copyText(text, button, recordPath) {
   if (button?.disabled) return;
   if (button) button.disabled = true;
@@ -402,7 +428,7 @@ function setStatusQuiet() { $("gallery-count").textContent = `${(state.pageItems
 async function deleteSelected() {
   const paths = [...selection];
   if (!paths.length) return;
-  if (!confirm(`确定删除选中的 ${paths.length} 张图片？删除后链接立即失效。`)) return;
+  if (!await confirmAsync(`确定删除选中的 ${paths.length} 张图片？删除后链接立即失效。`)) return;
   $("delete-selected").disabled = true;
   // 每 5 张一批、多批串行，规避平台函数执行时长限制与 GitHub API 压力
   const deleted = [], failed = [];
@@ -413,7 +439,7 @@ async function deleteSelected() {
       deleted.push(...(data.deleted || [])); failed.push(...(data.failed || []));
     } catch (error) { failed.push(...paths.slice(i, i + 5).map((path) => ({ path, message: error.message }))); }
   }
-  if (failed.length) alert(`${deleted.length} 张已删除，${failed.length} 张失败：\n${failed.map((f) => `${f.path}：${f.message}`).join("\n")}`);
+  if (failed.length) showToast(`${deleted.length} 张已删除，${failed.length} 张失败：\n${failed.map((f) => `${f.path}：${f.message}`).join("\n")}`, true);
   selection.clear(); if (deleted.length) invalidateGalleryCache(); await loadGallery();
 }
 
@@ -448,7 +474,7 @@ function updateLightbox() {
   image.onload = () => { if (token === state.lightboxImageToken) { image.hidden = false; status.hidden = true; } }; image.onerror = () => { if (token === state.lightboxImageToken) { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; } }; image.src = url; image.alt = path || "预览图片"; $("lightbox-url").textContent = url; $("lightbox-index").textContent = `${state.lightboxPage} 页 · ${state.lightboxIndex + 1} / ${state.lightboxItems.length}`; updateLightboxControls(); $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path); $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path); $("lightbox-open").href = url; $("lightbox-delete").style.display = state.loggedIn ? "" : "none"; $("lightbox-delete").onclick = () => deleteImage(url, path);
 }
 async function deleteImage(url, knownPath) {
-  if (!confirm("确定删除这张图片？删除后链接立即失效。")) return;
+  if (!await confirmAsync("确定删除这张图片？删除后链接立即失效。")) return;
   $("lightbox-delete").disabled = true; $("lightbox-delete").textContent = "删除中……";
   try {
     if (!knownPath) throw new Error("缺少图片仓库路径，无法删除");
@@ -456,7 +482,7 @@ async function deleteImage(url, knownPath) {
     const targetPath = knownPath;
     if (!(data.deleted || []).includes(targetPath) || (data.failed || []).some((item) => item.path === targetPath)) throw new Error(data.failed?.find((item) => item.path === targetPath)?.message || "图片删除未完成");
     invalidateGalleryCache(); closeLightbox(); loadGallery();
-  } catch (error) { alert(`删除失败：${error.message}`); }
+  } catch (error) { showToast(`删除失败：${error.message}`, true); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
 function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
