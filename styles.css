@@ -1,55 +1,57 @@
 /* Light mode root variables */
 :root {
-  color-scheme: light dark;
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --text: #111827;
-  --text-secondary: #6b7280;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-faint: rgba(79, 70, 229, 0.04);
-  --danger: #dc2626;
-  --radius: 8px;
-  --speed: 160ms;
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --surface: rgba(255, 255, 255, 0.86);
+  --border: rgba(60, 60, 67, 0.16);
+  --border-strong: rgba(60, 60, 67, 0.28);
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-faint: rgba(0, 113, 227, 0.08);
+  --danger: #d70015;
+  --radius: 14px;
+  --speed: 180ms;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   color: var(--text);
   background: var(--bg);
 }
 
-/* Dark mode overrides via data-theme attribute */
+/* Explicit theme overrides; system is the default when no data-theme is present. */
+[data-theme="light"] { color-scheme: light; }
 [data-theme="dark"] {
-  --bg: #111827;
-  --surface: #1f2937;
-  --border: #374151;
-  --border-strong: #4b5563;
-  --text: #f9fafb;
-  --text-secondary: #d1d5db;
-  --accent: #818cf8;
-  --accent-hover: #6366f1;
-  --accent-faint: rgba(129, 140, 248, 0.04);
-  --danger: #ef4444;
+  color-scheme: dark;
+  --bg: #111113;
+  --surface: rgba(30, 30, 32, 0.9);
+  --border: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.28);
+  --text: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --accent: #2997ff;
+  --accent-hover: #4aa3ff;
+  --accent-faint: rgba(41, 151, 255, 0.12);
+  --danger: #ff453a;
 }
 
-/* System dark mode using prefers-color-scheme */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111827;
-    --surface: #1f2937;
-    --border: #374151;
-    --border-strong: #4b5563;
-    --text: #f9fafb;
-    --text-secondary: #d1d5db;
-    --accent: #818cf8;
-    --accent-hover: #6366f1;
-    --accent-faint: rgba(129, 140, 248, 0.04);
-    --danger: #ef4444;
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --bg: #111113;
+    --surface: rgba(30, 30, 32, 0.9);
+    --border: rgba(255, 255, 255, 0.16);
+    --border-strong: rgba(255, 255, 255, 0.28);
+    --text: #f5f5f7;
+    --text-secondary: #a1a1a6;
+    --accent: #2997ff;
+    --accent-hover: #4aa3ff;
+    --accent-faint: rgba(41, 151, 255, 0.12);
+    --danger: #ff453a;
   }
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-size: 15px; line-height: 1.6; background: radial-gradient(circle at 12% 8%, #eef2ff 0, transparent 34%), linear-gradient(135deg, #fafafa 0%, #f5f7ff 100%); }
+body { margin: 0; font-size: 15px; line-height: 1.6; background: radial-gradient(circle at 12% 8%, rgba(0, 113, 227, 0.06) 0, transparent 34%), var(--bg); }
 body.has-hero { --bg: #ffffff; background: transparent; }
 
 /* ---------- 顶栏 ---------- */
@@ -123,14 +125,14 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 
 .field { display: block; margin-bottom: 16px; }
 .field-label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
-.field input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 14px; color: var(--text); }
+.field input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 14px; color: var(--text); }
 .field input:focus { outline: none; border-color: var(--accent); }
 .field-error { display: block; margin-top: 6px; font-size: 13px; color: var(--danger); }
 
 /* ---------- 上传区 ---------- */
 .dropzone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 44px 20px; border: 1.5px dashed #a5b4fc; border-radius: 12px; background: rgba(238, 242, 255, 0.42); cursor: pointer; text-align: center; transition: border-color var(--speed) ease-out, background var(--speed) ease-out, transform var(--speed) ease-out; }
 .dropzone:hover, .dropzone.dragging { border-color: var(--accent); background: rgba(224, 231, 255, 0.72); transform: translateY(-1px); }
-.dropzone input { display: none; }
+.dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .dropzone-icon { color: var(--text-secondary); }
 .dropzone-title { font-size: 14px; font-weight: 500; }
 .dropzone-hint { font-size: 13px; color: var(--text-secondary); }
@@ -164,8 +166,8 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, 0.92); color: var(--text); cursor: pointer; transition: background var(--speed) ease-out, color var(--speed) ease-out; }
 .icon-button:hover { background: #fff; color: var(--accent); }
 
-.toast { position: fixed; top: 68px; left: 50%; transform: translate(-50%, -8px); z-index: 60; padding: 8px 16px; background: var(--text); color: #fff; font-size: 13px; border-radius: 6px; opacity: 0; pointer-events: none; transition: opacity var(--speed) ease-out, transform var(--speed) ease-out; }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast { position: fixed; top: 68px; left: 50%; transform: translate(-50%, -8px); z-index: 60; padding: 10px 16px; max-width: min(560px, calc(100vw - 32px)); background: var(--text); color: #fff; font-size: 13px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity var(--speed) ease-out, transform var(--speed) ease-out; white-space: pre-line; }
+.toast { white-space: pre-line; }
 .shot.selectable { cursor: pointer; }
 .shot.selectable .check { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.15); }
 .shot.selectable .check.checked { background: var(--accent); border-color: var(--accent); }

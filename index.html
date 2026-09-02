@@ -6,24 +6,29 @@
     <title>image-bed</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="favicon.ico" sizes="any" />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#f5f5f7" />
+    <meta name="description" content="轻量、快速、专注的个人图片托管工具。" />
+    <meta property="og:title" content="image-bed · 简单上传，随处使用" />
+    <meta property="og:description" content="上传图片并立即获取可分享的 CDN 链接。" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="bg" class="bg" aria-hidden="true"></div>
-    <header class="topbar">
+    <header class="topbar" role="banner">
       <div class="topbar-inner">
         <a class="brand" href="/">image-bed</a>
-        <nav class="nav">
-          <button class="nav-link active" data-tab="home">上传</button>
-          <button class="nav-link" data-tab="gallery">图片库</button>
+        <nav class="nav" role="tablist" aria-label="主要导航">
+          <button id="tab-home" class="nav-link active" role="tab" aria-selected="true" aria-controls="page-home" data-tab="home">上传</button>
+          <button id="tab-gallery" class="nav-link" role="tab" aria-selected="false" aria-controls="page-gallery" data-tab="gallery">图片库</button>
         </nav>
         <div id="account" class="account hidden"></div>
       </div>
     </header>
 
-    <main class="container">
-      <section id="page-home" class="page">
+    <main class="container" role="main">
+      <section id="page-home" class="page" role="tabpanel" aria-labelledby="tab-home">
         <div class="home-grid">
           <div class="home-copy">
             <h1>图片，传上去，拿走链接。</h1>
@@ -52,7 +57,7 @@
         </div>
       </section>
 
-      <section id="page-gallery" class="page hidden">
+      <section id="page-gallery" class="page hidden" role="tabpanel" aria-labelledby="tab-gallery">
         <div class="gallery-head">
           <h2 class="gallery-title">图片库</h2>
           <span id="gallery-count" class="gallery-count"></span>
@@ -80,8 +85,8 @@
       </section>
     </main>
 
-    <div id="settings-panel" class="settings-pop hidden" role="menu">
-      <h3>站点设置</h3>
+    <div id="settings-panel" class="settings-pop hidden" role="dialog" aria-modal="false" aria-labelledby="settings-title">
+      <h3 id="settings-title">站点设置</h3>
       <label class="field">
         <span class="field-label">首页背景图 URL</span>
         <input id="setting-hero-url" type="url" placeholder="https://…/background.jpg" />
@@ -104,8 +109,12 @@
         </label>
       </div>
       <label class="field">
-        <span class="field-label">暗色模式</span>
-        <input id="setting-dark-mode" type="checkbox" />
+        <span class="field-label">主题模式</span>
+        <select id="setting-theme" class="theme-select">
+          <option value="system">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
       </label>
       <div class="settings-actions">
         <button id="setting-save" class="primary-button">保存设置</button>

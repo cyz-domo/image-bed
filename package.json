@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "python3 -m http.server",
-    "check": "node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js && node --check cloud-functions/api/delete.js && node --check cloud-functions/api/settings.js && node --check cloud-functions/api/links.js && node --check cloud-functions/api/health.js && node --check cloud-functions/_lib/github.js && node --check cloud-functions/_lib/state.js",
+    "check": "node --check app.js && node --check cloud-functions/api/auth/login.js && node --check cloud-functions/api/auth/callback.js && node --check cloud-functions/api/auth/me.js && node --check cloud-functions/api/auth/logout.js && node --check cloud-functions/api/history.js && node --check cloud-functions/api/upload.js && node --check cloud-functions/api/delete.js && node --check cloud-functions/api/settings.js && node --check cloud-functions/api/quota.js && node --check cloud-functions/api/links.js && node --check cloud-functions/api/health.js && node --check cloud-functions/_lib/github.js && node --check cloud-functions/_lib/state.js && node --check cloud-functions/_lib/http.js && node --check cloud-functions/_lib/auth.js && node --check cloud-functions/_lib/image-url.js",
     "test": "node --test"
   },
   "dependencies": {

@@ -5,7 +5,10 @@ const GALLERY_CACHE_TTL = 5 * 60 * 1000;
 const GALLERY_CACHE_LIMIT = 6;
 let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
-const escapeHtml = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeHtml = (text) => String(text ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function safeRemoteUrl(value) {
+  try { const url = new URL(String(value || ""), location.origin); return url.protocol === "https:" ? url.href : ""; } catch { return ""; }
+}
 
 async function api(path, options) {
   const response = await fetch(path, { credentials: "same-origin", ...options });
@@ -74,10 +77,10 @@ function renderLoggedIn(login, avatarUrl) {
   state.login = login;
   const account = $("account");
   account.classList.remove("hidden");
-  const safeAvatar = /^https:\/\//.test(avatarUrl || "") ? avatarUrl : avatarFallback(login);
-  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" alt="${escapeHtml(login)}" onerror="this.src='${avatarFallback(login)}';this.onerror=null"><span class="account-name">@${escapeHtml(login)}</span></button>`;
+  const safeAvatar = safeRemoteUrl(avatarUrl) || avatarFallback(login);
+  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" alt="${escapeHtml(login)}"><span class="account-name">@${escapeHtml(login)}</span></button>`;
   const imgEl = account.querySelector("img.account-avatar");
-  if (imgEl) imgEl.src = safeAvatar;
+  if (imgEl) { imgEl.src = safeAvatar; imgEl.onerror = () => { imgEl.src = avatarFallback(login); imgEl.onerror = null; }; }
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
@@ -179,11 +182,14 @@ async function saveSettings() {
   const heroUrl = $("setting-hero-url").value.trim();
   const acceleratorUrl = $("setting-accelerator-url").value.trim();
   const saveButton = $("setting-save"); if (saveButton.disabled) return; saveButton.disabled = true;
-  if (heroUrl && !/^https:\/\//.test(heroUrl)) { errorEl.textContent = "需要 https:// 开头的图片地址"; errorEl.hidden = false; saveButton.disabled = false; return; }
+  if (heroUrl && !safeRemoteUrl(heroUrl)) { errorEl.textContent = "需要有效的 https:// 图片地址"; errorEl.hidden = false; saveButton.disabled = false; return; }
   if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; saveButton.disabled = false; return; }
+  const dailyLimit = Number($("setting-daily-limit").value), maxFileMb = Number($("setting-max-size").value);
+  if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10000) { errorEl.textContent = "每日上传上限需为 1–10000 的整数"; errorEl.hidden = false; saveButton.disabled = false; return; }
+  if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { errorEl.textContent = "单张大小上限需为 1–100 MB"; errorEl.hidden = false; saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: acceleratorUrl, daily_upload_limit: Number($("setting-daily-limit").value), max_file_mb: Number($("setting-max-size").value) }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
@@ -195,30 +201,16 @@ async function saveSettings() {
 /* ---------- 主题（暗色模式） ---------- */
 function applyTheme(theme) {
   const root = document.documentElement;
-  if (theme === "dark") {
-    root.dataset.theme = "dark";
-  } else {
-    root.removeAttribute("data-theme");
-  }
+  if (["light", "dark"].includes(theme)) root.dataset.theme = theme;
+  else root.removeAttribute("data-theme");
 }
 function initThemeToggle() {
-  const toggle = $("setting-dark-mode");
+  const toggle = $("setting-theme");
   if (!toggle) return;
   const stored = localStorage.getItem("image-bed.theme");
-  if (stored === "dark") {
-    toggle.checked = true;
-    applyTheme("dark");
-  } else {
-    toggle.checked = false;
-    applyTheme("light");
-  }
-  toggle.addEventListener("change", (e) => {
-    const enabled = e.target.checked;
-    applyTheme(enabled ? "dark" : "light");
-    try {
-      localStorage.setItem("image-bed.theme", enabled ? "dark" : "light");
-    } catch {}
-  });
+  toggle.value = ["system", "light", "dark"].includes(stored) ? stored : "system";
+  applyTheme(toggle.value);
+  toggle.addEventListener("change", (e) => { applyTheme(e.target.value); try { localStorage.setItem("image-bed.theme", e.target.value); } catch {} });
 }
 
 /* ---------- 上传（支持批量，并发 2） ---------- */
@@ -261,7 +253,15 @@ async function uploadOne(file, done, total) {
         xhr.onerror = () => reject(new Error("网络错误"));
         xhr.send(form);
       });
-      $("upload-results").insertAdjacentHTML("beforeend", `<div class="result"><img src="${data.url}" alt=""><div class="result-info"><span class="url">${escapeHtml(data.url)}</span><div class="result-actions"><button class="icon-button" data-copy="${escapeHtml(data.url)}" title="复制链接" aria-label="复制链接">🔗</button><button class="icon-button" data-copy="${escapeHtml(data.markdown)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button></div></div></div>`);
+      const resultUrl = safeRemoteUrl(data.url);
+      if (!resultUrl) throw new Error("服务端返回了无效图片地址");
+      const result = document.createElement("div"); result.className = "result";
+      const preview = document.createElement("img"); preview.src = resultUrl; preview.alt = "已上传图片";
+      const info = document.createElement("div"); info.className = "result-info";
+      const urlText = document.createElement("span"); urlText.className = "url"; urlText.textContent = resultUrl;
+      const actions = document.createElement("div"); actions.className = "result-actions";
+      for (const [text, value, label] of [["🔗", resultUrl, "复制链接"], ["Ⓜ", data.markdown, "复制 Markdown"]]) { const button = document.createElement("button"); button.className = "icon-button"; button.dataset.copy = value || ""; button.title = label; button.ariaLabel = label; button.textContent = text; actions.append(button); }
+      info.append(urlText, actions); result.append(preview, info); $("upload-results").append(result);
       $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
       updateQuotaDisplay(data.daily_remaining, Number($("setting-daily-limit").value) || 100);
       return true;
@@ -285,18 +285,19 @@ async function upload(files) {
   state.uploading = true;
   $("dropzone").classList.add("uploading");
   let done = 0, ok = 0;
-  for (const file of list) {
-    const success = await uploadOne(file, done, list.length);
-    done += 1; if (success) ok += 1;
-    const percent = Math.round((done / list.length) * 100);
-    bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
-  }
-  progress.classList.add("hidden");
-  state.uploading = false; $("dropzone").classList.remove("uploading");
-  setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
-  $("results-footer").classList.toggle("hidden", !ok);
-  if (ok) invalidateGalleryCache();
-  if (state.tab === "gallery" && ok) loadGallery();
+  try {
+    for (const file of list) {
+      const success = await uploadOne(file, done, list.length);
+      done += 1; if (success) ok += 1;
+      const percent = Math.round((done / list.length) * 100);
+      bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
+    }
+    setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
+    $("results-footer").classList.toggle("hidden", !ok);
+    if (ok) invalidateGalleryCache();
+    if (state.tab === "gallery" && ok) loadGallery();
+  } catch (error) { setStatus(`上传异常：${error.message}`, true); }
+  finally { progress.classList.add("hidden"); state.uploading = false; $("dropzone").classList.remove("uploading"); }
 }
 $("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
 // 恢复上次每页设置（旧值可能是 3 的倍数，吸附到 4 的倍数）
@@ -348,13 +349,18 @@ function renderGallery(items) {
     columns[target].push(item);
     heights[target] += 1; // 无固定比例，用张数近似均衡
   }
-  const iconButtons = (item) => `
-    <button class="icon-button" data-view="${item.url}" data-view-path="${escapeHtml(item.path)}" title="查看大图" aria-label="查看大图"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M2.5 7V4.5A2 2 0 0 1 4.5 2.5H7M13 2.5h2.5a2 2 0 0 1 2 2V7M17.5 13v2.5a2 2 0 0 1-2 2H13M7 17.5H4.5a2 2 0 0 1-2-2V13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-    <button class="icon-button" data-copy="${escapeHtml(item.url)}" data-copy-path="${escapeHtml(item.path)}" title="复制链接" aria-label="复制链接"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M8.5 12.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 1 0-5-5l-1.5 1.5M11.5 7.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 1 0 5 5l1.5-1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-    <button class="icon-button" data-copy="${escapeHtml(`![image](${item.url})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><rect x="1.5" y="4.5" width="17" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 12.5v-5l2.5 3 2.5-3v5M13 7.5v5M13 12.5l-1.8-1.8M13 12.5l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
-  const card = (item) => selectMode()
-    ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}"><img loading="lazy" src="${item.thumb || item.url}" alt="" /><span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
-    : `<figure class="shot"><img loading="lazy" src="${item.thumb || item.url}" alt="" /><figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
+  const iconButtons = (item) => {
+    const safeUrl = safeRemoteUrl(item.url); return `<button class="icon-button" data-view="${escapeHtml(safeUrl)}" data-view-path="${escapeHtml(item.path)}" title="查看大图" aria-label="查看大图">查看</button>
+    <button class="icon-button" data-copy="${escapeHtml(safeUrl)}" data-copy-path="${escapeHtml(item.path)}" title="复制链接" aria-label="复制链接">🔗</button>
+    <button class="icon-button" data-copy="${escapeHtml(`![image](${safeUrl})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown">Ⓜ</button>`;
+  };
+  const card = (item) => {
+    const imageUrl = safeRemoteUrl(item.thumb || item.url);
+    const alt = escapeHtml(item.path || "图片");
+    return selectMode()
+      ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}"><img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" /><span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
+      : `<figure class="shot"><img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" /><figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
+  };
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view, button.dataset.viewPath));
   $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button, button.dataset.copyPath));
