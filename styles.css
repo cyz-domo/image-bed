@@ -1,5 +1,6 @@
+/* Light mode root variables */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --bg: #fafafa;
   --surface: #ffffff;
   --border: #e5e7eb;
@@ -16,6 +17,37 @@
   color: var(--text);
   background: var(--bg);
 }
+
+/* Dark mode overrides via data-theme attribute */
+[data-theme="dark"] {
+  --bg: #111827;
+  --surface: #1f2937;
+  --border: #374151;
+  --border-strong: #4b5563;
+  --text: #f9fafb;
+  --text-secondary: #d1d5db;
+  --accent: #818cf8;
+  --accent-hover: #6366f1;
+  --accent-faint: rgba(129, 140, 248, 0.04);
+  --danger: #ef4444;
+}
+
+/* System dark mode using prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111827;
+    --surface: #1f2937;
+    --border: #374151;
+    --border-strong: #4b5563;
+    --text: #f9fafb;
+    --text-secondary: #d1d5db;
+    --accent: #818cf8;
+    --accent-hover: #6366f1;
+    --accent-faint: rgba(129, 140, 248, 0.04);
+    --danger: #ef4444;
+  }
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; font-size: 15px; line-height: 1.6; background: radial-gradient(circle at 12% 8%, #eef2ff 0, transparent 34%), linear-gradient(135deg, #fafafa 0%, #f5f7ff 100%); }
 body.has-hero { --bg: #ffffff; background: transparent; }

@@ -166,6 +166,35 @@ async function saveSettings() {
   finally { saveButton.disabled = false; }
 }
 
+/* ---------- 主题（暗色模式） ---------- */
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "dark") {
+    root.dataset.theme = "dark";
+  } else {
+    root.removeAttribute("data-theme");
+  }
+}
+function initThemeToggle() {
+  const toggle = $("setting-dark-mode");
+  if (!toggle) return;
+  const stored = localStorage.getItem("image-bed.theme");
+  if (stored === "dark") {
+    toggle.checked = true;
+    applyTheme("dark");
+  } else {
+    toggle.checked = false;
+    applyTheme("light");
+  }
+  toggle.addEventListener("change", (e) => {
+    const enabled = e.target.checked;
+    applyTheme(enabled ? "dark" : "light");
+    try {
+      localStorage.setItem("image-bed.theme", enabled ? "dark" : "light");
+    } catch {}
+  });
+}
+
 /* ---------- 上传（支持批量，并发 2） ---------- */
 function setStatus(message, error = false) {
   const el = $("upload-status"); el.textContent = message; el.className = `status${error ? " error" : ""}`;
@@ -480,6 +509,7 @@ $("next").onclick = () => { state.page += 1; loadGallery(); };
 
 loadAccount();
 loadHero();
+initThemeToggle();
 // 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
 // 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
