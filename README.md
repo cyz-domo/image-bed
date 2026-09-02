@@ -1,32 +1,32 @@
 # image-bed
 
-个人图床：网页上传，图片存到 GitHub 仓库，通过 [jsDelivr](https://www.jsdelivr.com/) CDN 公开访问。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），自定义域名 `images.example.com`。
+个人 GitHub 图床：网页上传，图片保存到 GitHub 仓库，并生成公开可访问的图片链接。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），可绑定自定义域名（示例：`images.example.com`）。
 
 - **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持在图片库删除已传图片
-- **查看**：公开。任何人不登录也能访问图片链接和图片库
-- **会话**：HMAC 签名 cookie，有效期 24 小时；退出登录时服务端吊销会话，丢过的 cookie 无法再登入
+- **图片链接**：公开可访问。任何人只要拥有链接即可查看图片，请勿上传敏感内容
+- **图片库**：仅登录用户可见，用于浏览、排序、复制链接和删除图片
+- **会话**：HMAC 签名 cookie，有效期 24 小时；退出登录时服务端吊销会话，丢失的 cookie 无法再次登入
 - **状态存储**：优先 EdgeOne KV（绑定变量名 `IMAGE_KV`，见下文）；未绑定时回退到仓库 `.state/state.json`（会因此产生少量 `chore: update state` 提交）
 - **历史列表**：图片列表缓存在 KV 中（10 分钟），所有边缘实例共享，跨实例访问不再回源 GitHub；上传/删除会同步更新缓存。未绑定 KV 时退回单实例内存缓存
 - **处理**：PNG/JPEG/WebP 在服务端缩放（最长边 ≤2560）并转 WebP；GIF 保留原格式；按文件真实字节校验格式（扩展名不符的图也能传）
 
-## 站点结构
+## 页面与目录结构
 
+当前前端为原生 ES Modules、无构建步骤的静态页面：
+
+```text
+index.html / app.js / styles.css   页面入口、交互逻辑与 Apple 风格视觉系统
+logo.jpg                            顶栏品牌 Logo 与社交分享预览图（约 18 KB）
+favicon.ico                        网站图标（64×64，约 6 KB）
+favicon.svg                        SVG 备用图标
+cloud-functions/                   EdgeOne Cloud Functions API
+  ├─ _lib/                         鉴权、GitHub、状态、HTTP 工具
+  └─ api/                          OAuth、上传、图片库、删除、设置、健康检查
+scripts/deploy-cli.sh              直传部署 staging 打包脚本
+tests/                              Node 内置测试
 ```
-index.html / app.js / styles.css   纯静态前端（无框架、无构建）
-  ├─ 首页标签：背景图 + 站点说明 + 上传面板（登录后显示）/ 登录引导（未登录显示）
-  └─ 图片库标签：已上传图片网格，点击大图查看、一键复制链接
-cloud-functions/
-  ├─ _lib/auth.js   会话签发/校验/吊销（HMAC cookie）、GitHub App JWT
-  ├─ _lib/github.js GitHub API 封装 + 安装令牌缓存（45 分钟）
-  ├─ _lib/state.js  状态存储：优先 KV（IMAGE_KV），回退 .state/state.json；含历史列表 KV 缓存
-  └─ api/
-      ├─ auth/login|callback|me|logout.js   GitHub OAuth 登录流程（退出即吊销）
-      ├─ upload.js     限额检查 → 字节嗅探 → sharp 压缩转 WebP → GitHub 写入
-      ├─ delete.js     删除已上传图片（仅 images/ 路径，需登录）
-      ├─ settings.js   站点设置（背景图 URL 等；GET 公开，POST 需登录）
-      ├─ history.js    图片列表（KV 共享缓存 10 分钟，未绑 KV 时回源 git tree）
-      └─ health.js     健康检查
-```
+
+首页采用 Hero + 登录 CTA/上传主面板；图片库提供登录后浏览、排序、批量管理、分页、复制和 Lightbox；设置浮层提供背景图、加速域名、额度和三态主题。
 
 ## 环境变量
 
@@ -84,7 +84,7 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
    - Repository permissions：**Contents: Read and write**；
    - 创建后记录 App ID、Client ID，生成 Client secret，**Generate a private key** 下载 `.pem`。
 3. **安装 App 到图片仓库**，安装页 URL `https://github.com/apps/<app-name>/installations/<数字>` 中的数字即 Installation ID。
-4. **EdgeOne Pages 控制台**：新建项目，关联本仓库 `main` 分支，push 即自动部署。
+4. **EdgeOne Pages 控制台**：新建项目，关联本仓库的 **`dev-edgeone` 分支**，push 该分支即自动部署。
    - 构建命令留空即可（无前端打包步骤，`sharp` 由平台按 `package.json` 安装）；
    - Functions 运行时需支持 Node.js 依赖（Cloud Functions），不能选纯 Edge Functions（不支持 `sharp`）；
    - 按上表配置全部环境变量（含三段私钥）。
@@ -105,10 +105,16 @@ echo -n "${B64:1400}"    | pbcopy   # → 粘贴到 GITHUB_APP_PRIVATE_KEY_B64_3
 
 ## 分支与部署策略
 
-- `main`：开发主线。**EdgeOne 不跟踪此分支**，推送不触发自动部署。
-- `dev-edgeone`：EdgeOne 绑定的分支，推此分支即自动部署（约 1-2 分钟）。
-- 网页上传/删除图片由 GitHub App 直接提交到 `main`（`chore: upload/delete ...`），与分支策略无关；如果云函数代码有未部署的变更，传图后记得部署。
-- 把 `main` 的最新代码同步到 dev 分支并触发部署：`git push origin main:dev-edgeone`。
+- `main`：开发主线，普通 push 不触发正式 EdgeOne 部署。
+- `dev-edgeone`：EdgeOne Pages 绑定分支，push 后自动部署（通常约 1–2 分钟）。
+- 网页上传/删除图片由 GitHub App 提交到图片仓库的 `main`，与 EdgeOne 部署分支无关。
+- 将开发主线同步到部署分支：
+
+```bash
+git push origin main:dev-edgeone
+```
+
+推荐流程：先在 `main` 完成功能开发和检查，再将经过验证的提交推送到 `dev-edgeone`。
 
 ### 用 CLI 部署（推荐）
 
@@ -147,12 +153,16 @@ curl -s https://images.example.com/api/auth/me       # {"authenticated":false}
 curl -sI https://images.example.com/api/auth/login   # 302 → github.com/login/oauth/authorize
 ```
 
-## 本地开发
+## 本地开发与测试
 
 ```bash
 npm install
-npm run check   # 语法检查全部云函数
+npm run dev       # 静态服务器，默认访问 http://localhost:8000/
+npm test          # Node 内置测试
+npm run check     # 前端入口与全部 Cloud Functions 语法检查
 ```
+
+前端不需要构建命令；EdgeOne Pages 的构建命令保持为空。完整登录、上传和删除流程需要在已配置 OAuth、GitHub App 和 KV 的 EdgeOne 环境验证。
 
 EdgeOne CLI 本地调试（读 `.env` 中的变量）：
 

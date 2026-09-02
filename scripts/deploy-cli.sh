@@ -16,7 +16,7 @@ fi
 echo "==> 构建干净 staging 目录"
 STAGING="$(mktemp -d /tmp/image-bed-deploy.XXXXXX)"
 # 静态前端 + 云函数 + 依赖清单；绝不打包 .env（密钥）、node_modules、本地图片、.git
-cp index.html app.js styles.css favicon.svg favicon.ico package.json package-lock.json edgeone.json "$STAGING/"
+cp index.html app.js styles.css logo.jpg favicon.svg favicon.ico package.json package-lock.json edgeone.json "$STAGING/"
 cp -r cloud-functions "$STAGING/"
 
 echo "==> 部署 (edgeone makers deploy)"
