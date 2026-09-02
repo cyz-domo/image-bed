@@ -49,7 +49,9 @@ function renderLoggedIn(login, avatarUrl) {
   const account = $("account");
   account.classList.remove("hidden");
   const safeAvatar = /^https:\/\//.test(avatarUrl || "") ? avatarUrl : avatarFallback(login);
-  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" src="${escapeHtml(safeAvatar)}" alt="${escapeHtml(login)}" onerror="this.src='${avatarFallback(login)}';this.onerror=null"><span class="account-name">@${escapeHtml(login)}</span></button>`;
+  account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" alt="${escapeHtml(login)}" onerror="this.src='${avatarFallback(login)}';this.onerror=null"><span class="account-name">@${escapeHtml(login)}</span></button>`;
+  const imgEl = account.querySelector("img.account-avatar");
+  if (imgEl) imgEl.src = safeAvatar;
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
