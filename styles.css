@@ -229,42 +229,9 @@ button, .primary-button, .ghost-button { font: inherit; border-radius: 6px; curs
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* Apple-inspired overrides */
-/* Update colors to Apple palette */
-[data-theme="dark"] {
-  --bg: #1c1c1e;
-  --surface: #1c1c1e;
-  --border: #38383a;
-  --text: #f9fafb;
-  --accent: #0a84ff;
-  --danger: #ff453a;
-}
-
-/* Adjust topbar for iOS style */
-.topbar {
-  height: 44px;
-  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
-  background: rgba(255,255,255,0.9);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border);
-}
-
-/* Increase button touch targets */
-button, .primary-button, .ghost-button {
-  min-height: 44px;
-}
-
-/* Visually hidden for screen readers */
-.visually-hidden {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;}
-
-/* Toast positioning for safe area */
-.toast { bottom: calc(20px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
-
 /* Confirm modal styling */
 .confirm-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 60; }
 .confirm-modal.hidden { display: none; }
 .confirm-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; max-width: 90%; }
 .confirm-message { margin-bottom: 12px; font-size: 15px; color: var(--text); }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-
-/* End of Apple-inspired overrides */
