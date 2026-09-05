@@ -2,10 +2,11 @@ import { readSession, authUnavailable } from "../_lib/auth.js";
 import { loadState, updateState, setSetting, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
-const EDITABLE = new Set(["hero_background_url", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
+const EDITABLE = new Set(["hero_background_url", "hero_blur", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
 function validHeroUrl(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && value.trim().length <= 2048; } catch { return false; } }
 function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
-const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100] };
+const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100], hero_blur: [0, 40] };
+const LABELS = { daily_upload_limit: "每日上限", max_file_mb: "大小上限", hero_blur: "背景模糊度" };
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
 
@@ -27,7 +28,7 @@ export async function onRequest({ request, env }) {
     for (const [key, value] of entries) {
       if (key === "hero_background_url") { if (typeof value !== "string" || !validHeroUrl(value)) return error("SETTING_INVALID", "背景图地址必须是 https:// 开头的地址", 400); }
       else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
-      else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${key === "daily_upload_limit" ? "每日上限" : "大小上限"}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
+      else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${LABELS[key]}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
     const normalizedEntries = entries.map(([key, value]) => [key, key === "accelerator_base_url" ? value.trim().replace(/\/$/, "") : LIMITS[key] ? toNumber(value, LIMITS[key]) : value]);
     await updateState((s) => normalizedEntries.forEach(([key, value]) => setSetting(s, key, value)), env);

@@ -132,6 +132,7 @@ async function heroCacheDelete(url) {
 }
 
 /* ---------- 站点设置（背景图） ---------- */
+function applyHeroBlur(px) { document.documentElement.style.setProperty("--hero-blur", `${Math.min(40, Math.max(0, Number(px) || 0))}px`); }
 function applyHero(url, blob) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
@@ -147,7 +148,12 @@ function applyHero(url, blob) {
 async function loadHero(urlOverride) {
   const requestId = ++state.heroRequest;
   try {
-    const url = urlOverride === undefined ? (await api("/api/settings")).settings.hero_background_url || null : urlOverride || null;
+    let url = urlOverride;
+    if (urlOverride === undefined) {
+      const settings = (await api("/api/settings")).settings || {};
+      url = settings.hero_background_url || null;
+      applyHeroBlur(settings.hero_blur ?? 20);
+    }
     if (requestId !== state.heroRequest) return;
     if (!url) { applyHero(null); return; }
     const cached = await heroCacheGet(url);
@@ -172,6 +178,8 @@ async function loadSettings() {
     const data = await api("/api/settings");
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
+    const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
+    $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
     $("setting-accelerator-url").value = s.accelerator_base_url || "";
     $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
     $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
@@ -187,12 +195,13 @@ async function saveSettings() {
   const saveButton = $("setting-save"); if (saveButton.disabled) return; saveButton.disabled = true;
   if (heroUrl && !safeRemoteUrl(heroUrl)) { errorEl.textContent = "需要有效的 https:// 图片地址"; errorEl.hidden = false; saveButton.disabled = false; return; }
   if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; saveButton.disabled = false; return; }
-  const dailyLimit = Number($("setting-daily-limit").value), maxFileMb = Number($("setting-max-size").value);
+  const dailyLimit = Number($("setting-daily-limit").value), maxFileMb = Number($("setting-max-size").value), heroBlur = Number($("setting-hero-blur").value);
   if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10000) { errorEl.textContent = "每日上传上限需为 1–10000 的整数"; errorEl.hidden = false; saveButton.disabled = false; return; }
   if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { errorEl.textContent = "单张大小上限需为 1–100 MB"; errorEl.hidden = false; saveButton.disabled = false; return; }
+  if (!Number.isFinite(heroBlur) || heroBlur < 0 || heroBlur > 40) { errorEl.textContent = "背景模糊度需在 0–40 px 之间"; errorEl.hidden = false; saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
@@ -550,6 +559,7 @@ $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").cl
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
+$("setting-hero-blur").oninput = (event) => { const value = Number(event.target.value); $("hero-blur-value").textContent = value; applyHeroBlur(value); };
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
 document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
