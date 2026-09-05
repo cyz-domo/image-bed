@@ -136,12 +136,14 @@ function applyHero(url, blob) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
   if (activeHeroObjectUrl) { URL.revokeObjectURL(activeHeroObjectUrl); activeHeroObjectUrl = null; }
+  $("bg").style.backgroundImage = "";
   if (url && blob) { activeHeroObjectUrl = URL.createObjectURL(blob); $("bg").style.backgroundImage = `url("${activeHeroObjectUrl}")`; }
-  else if (!url) $("bg").style.backgroundImage = "";
+  else if (url) $("bg").style.backgroundImage = `url("${url}")`;
   $("hero-remove").hidden = !url;
 }
 
-// 背景图对所有访客生效（GET /api/settings 公开）；字节缓存在浏览器 IndexedDB
+// 背景图对所有访客生效（GET /api/settings 公开）；优先取浏览器 IndexedDB 缓存，
+// 未命中再 fetch（受 CORS 限制）；fetch 失败时降级为直接使用远程 URL 作 CSS 背景
 async function loadHero(urlOverride) {
   const requestId = ++state.heroRequest;
   try {
@@ -151,12 +153,17 @@ async function loadHero(urlOverride) {
     const cached = await heroCacheGet(url);
     if (requestId !== state.heroRequest) return;
     if (cached) { applyHero(url, cached); return; }
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("背景图读取失败");
-    const blob = await response.blob();
-    if (requestId !== state.heroRequest) return;
-    applyHero(url, blob);
-    heroCachePut(url, blob);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("背景图读取失败");
+      const blob = await response.blob();
+      if (requestId !== state.heroRequest) return;
+      applyHero(url, blob);
+      heroCachePut(url, blob);
+    } catch {
+      if (requestId !== state.heroRequest) return;
+      applyHero(url, null); // CSS 背景不受 CORS 限制，直接引用远程 URL
+    }
   } catch { if (requestId === state.heroRequest && !state.heroUrl) applyHero(null); }
 }
 
