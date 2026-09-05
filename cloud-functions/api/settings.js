@@ -4,6 +4,7 @@ import { error, json } from "../_lib/http.js";
 
 const EDITABLE = new Set(["hero_background_url", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
 function validHeroUrl(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && value.trim().length <= 2048; } catch { return false; } }
+function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
 const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100] };
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
