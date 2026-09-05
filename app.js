@@ -76,6 +76,7 @@ function renderLoggedIn(login, avatarUrl) {
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
   toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); const opening = panel.classList.contains("hidden"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(opening)); if (opening) { state.settingsOpener = toggle; $("setting-hero-url")?.focus(); } else toggle.focus(); };
+  const accountInfo = $("settings-account-info"); if (accountInfo) accountInfo.textContent = `已以 @${login} 身份登录`;
   $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); invalidateGalleryCache(); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
   loadSettings();
   loadQuota();
@@ -130,6 +131,13 @@ async function heroCacheDelete(url) {
   if (!url) return;
   try { const db = await heroDb(); await new Promise((resolve) => { const tx = db.transaction("kv", "readwrite").objectStore("kv").delete(url); tx.onsuccess = resolve; tx.onerror = resolve; }); } catch {}
 }
+
+/* ---------- 设置面板分组 ---------- */
+function showSettingsTab(name) {
+  for (const tab of document.querySelectorAll(".settings-tab")) { const active = tab.dataset.settingsTab === name; tab.classList.toggle("active", active); tab.setAttribute("aria-selected", String(active)); }
+  for (const page of document.querySelectorAll(".settings-page")) page.classList.toggle("hidden", page.dataset.settingsPage !== name);
+}
+for (const tab of document.querySelectorAll(".settings-tab")) tab.onclick = () => showSettingsTab(tab.dataset.settingsTab);
 
 /* ---------- 站点设置（背景图） ---------- */
 function applyHeroBlur(px) { document.documentElement.style.setProperty("--hero-blur", `${Math.min(40, Math.max(0, Number(px) || 0))}px`); }
@@ -189,16 +197,17 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const errorEl = $("setting-hero-error"), acceleratorError = $("setting-accelerator-error"); errorEl.hidden = true; acceleratorError.hidden = true;
+  const errorEl = $("setting-hero-error"), acceleratorError = $("setting-accelerator-error"), storageError = $("setting-storage-error");
+  errorEl.hidden = true; acceleratorError.hidden = true; storageError.hidden = true;
   const heroUrl = $("setting-hero-url").value.trim();
   const acceleratorUrl = $("setting-accelerator-url").value.trim();
   const saveButton = $("setting-save"); if (saveButton.disabled) return; saveButton.disabled = true;
-  if (heroUrl && !safeRemoteUrl(heroUrl)) { errorEl.textContent = "需要有效的 https:// 图片地址"; errorEl.hidden = false; saveButton.disabled = false; return; }
-  if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; saveButton.disabled = false; return; }
+  if (heroUrl && !safeRemoteUrl(heroUrl)) { errorEl.textContent = "需要有效的 https:// 图片地址"; errorEl.hidden = false; showSettingsTab("appearance"); saveButton.disabled = false; return; }
   const dailyLimit = Number($("setting-daily-limit").value), maxFileMb = Number($("setting-max-size").value), heroBlur = Number($("setting-hero-blur").value);
-  if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10000) { errorEl.textContent = "每日上传上限需为 1–10000 的整数"; errorEl.hidden = false; saveButton.disabled = false; return; }
-  if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { errorEl.textContent = "单张大小上限需为 1–100 MB"; errorEl.hidden = false; saveButton.disabled = false; return; }
-  if (!Number.isFinite(heroBlur) || heroBlur < 0 || heroBlur > 40) { errorEl.textContent = "背景模糊度需在 0–40 px 之间"; errorEl.hidden = false; saveButton.disabled = false; return; }
+  if (!Number.isFinite(heroBlur) || heroBlur < 0 || heroBlur > 40) { errorEl.textContent = "背景模糊度需在 0–40 px 之间"; errorEl.hidden = false; showSettingsTab("appearance"); saveButton.disabled = false; return; }
+  if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
+  if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10000) { storageError.textContent = "每日上传上限需为 1–10000 的整数"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
+  if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { storageError.textContent = "单张大小上限需为 1–100 MB"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
     const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
