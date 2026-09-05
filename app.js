@@ -458,6 +458,7 @@ $("upload-partition-dd") && wireDropdown($("upload-partition-dd"), () => syncNew
 $("upload-partition-new").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); commitNewPartition(); } };
 $("upload-partition-new").onblur = () => commitNewPartition();
 renderDropdown($("gallery-sort"), SORT_OPTIONS, "newest");
+updatePartitionUi(); // 启动时完整渲染所有分区控件（上传下拉、筛选、设置列表），不再依赖图片库接口返回
 // 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
 function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 4) * 4; return Math.min(120, Math.max(4, Number.isFinite(n) && n >= 4 ? n : 12)); }
 function onPerPageChange() {
@@ -653,6 +654,7 @@ function switchTab(tab, moveFocus = false) {
   if (moveFocus) tabs.find((node) => node.dataset.tab === tab)?.focus();
   $("page-home").classList.toggle("hidden", tab !== "home"); $("page-gallery").classList.toggle("hidden", tab !== "gallery");
   history.replaceState(null, "", tab === "home" ? "/" : "/#gallery");
+  if (tab === "home") updatePartitionUi(); // 回到上传页时同步分区控件状态，避免残留输入模式
   if (tab === "gallery") { if (state.loggedIn) loadGallery(); else { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); } }
 }
 for (const node of document.querySelectorAll(".nav-link")) {
@@ -699,8 +701,7 @@ $("next").onclick = () => { state.page += 1; loadGallery(); };
 loadAccount();
 loadHero();
 initThemeToggle();
-try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) state.galleryPartition = savedPartition; } catch {}
-renderDropdown($("gallery-partition"), [["all", "全部分区"], ["default", "默认图床"]], state.galleryPartition);
+try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) { state.galleryPartition = savedPartition; renderDropdown($("gallery-partition"), [["all", "全部分区"], ["default", "默认图床"]], state.galleryPartition); } } catch {}
 // 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
 // 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
