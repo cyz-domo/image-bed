@@ -28,9 +28,12 @@ export async function onRequest({ request, env }) {
     let form; try { form = await request.formData(); } catch (cause) { if (String(cause.message).includes("already been read")) return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503); throw cause; }
     const file = form.get("file"); if (!file || typeof file.arrayBuffer !== "function") return error("FILE_REQUIRED", "请选择图片", 400); if (file.size > maxBytes) return error("FILE_TOO_LARGE", `图片不能超过 ${Math.round(maxBytes / 1048576)} MB`, 413);
     const source = new Uint8Array(await file.arrayBuffer()); const sniffed = sniff(source); if (!sniffed) return error("FILE_SIGNATURE_INVALID", "文件内容不是有效图片（支持 PNG、JPG、GIF、WebP）", 400);
+    // 分区压缩策略：配置 compress:false 的分区保留原图（仅嗅探格式、不转码）；缩略图始终生成
+    const partitionConfig = state.settings?.partition_config || {};
+    const keepOriginal = partitionConfig[partition || "default"]?.compress === false;
     let output = source; let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : "webp"; let outputType = sniffed;
-    if (sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
-    if (output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
+    if (!keepOriginal && sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
+    if (!keepOriginal && output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
     const reservation = await reserveDailyQuota(env, limit).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
@@ -54,6 +57,6 @@ export async function onRequest({ request, env }) {
     invalidateHistoryCache();
     await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
     const url = imageUrl(env, path, state.settings);
-    return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: reservation.remaining });
+    return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", daily_remaining: reservation.remaining });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
 }

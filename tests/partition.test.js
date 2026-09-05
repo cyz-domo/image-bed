@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validPartition, partitionOf } from "../cloud-functions/_lib/partition.js";
+import { validPartition, partitionOf, validPartitionConfig } from "../cloud-functions/_lib/partition.js";
 
 test("validPartition accepts names and rejects invalid ones", () => {
   assert.equal(validPartition("wallpaper"), true);
@@ -19,4 +19,14 @@ test("partitionOf derives partition from image paths", () => {
   assert.equal(partitionOf("images/壁纸/2026/12/abc.webp"), "壁纸");
   assert.equal(partitionOf(".thumbnails/2026/09/abc.webp"), "");
   assert.equal(partitionOf(""), "");
+});
+
+test("validPartitionConfig validates partition compression settings", () => {
+  assert.equal(validPartitionConfig({ default: { compress: true }, wallpaper: { compress: false } }), true);
+  assert.equal(validPartitionConfig({}), true);
+  assert.equal(validPartitionConfig({ wallpaper: { compress: "yes" } }), false);
+  assert.equal(validPartitionConfig({ "bad/name": { compress: true } }), false);
+  assert.equal(validPartitionConfig({ "2026": { compress: true } }), false);
+  assert.equal(validPartitionConfig("not-object"), false);
+  assert.equal(validPartitionConfig(null), false);
 });

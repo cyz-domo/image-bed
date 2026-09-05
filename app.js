@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [] };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [], partitionConfig: {} };
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
@@ -211,6 +211,7 @@ async function loadSettings() {
     const data = await api("/api/settings");
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
+    state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
     const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
     $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
     $("setting-accelerator-url").value = s.accelerator_base_url || "";
@@ -219,6 +220,12 @@ async function loadSettings() {
     const hint = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
     $("dropzone-hint").textContent = hint;
   } catch { /* 设置读取失败不阻断页面 */ }
+}
+
+function readPartitionConfigFromUi() {
+  const config = {};
+  for (const checkbox of document.querySelectorAll("#partition-config-list input[type=checkbox][data-partition]")) config[checkbox.dataset.partition] = { compress: !checkbox.checked };
+  return config;
 }
 
 async function saveSettings() {
@@ -235,9 +242,10 @@ async function saveSettings() {
   if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { storageError.textContent = "单张大小上限需为 1–100 MB"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi() }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
+    state.partitionConfig = data.settings.partition_config || state.partitionConfig; renderPartitionConfig();
     saveHeroHint(data.settings.hero_background_url || null, Number.isFinite(Number(data.settings.hero_blur)) ? Number(data.settings.hero_blur) : heroBlur);
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
@@ -266,8 +274,10 @@ function setStatus(message, error = false) {
 }
 
 // 上传前本地压缩：长边压到 2560、WebP 质量 0.85（浏览器不支持 WebP 编码时退 JPEG），比原文件小才采用
+// 分区配置 compress:false（保留原图）时跳过本地压缩，原图直接传输
 async function compressForUpload(file) {
-  if (file.type === "image/gif" || file.size < 200 * 1024) return file;
+  const keepOriginal = (state.partitionConfig || {})[state.currentUploadPartition || "default"]?.compress === false;
+  if (keepOriginal || file.type === "image/gif" || file.size < 200 * 1024) return file;
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
@@ -439,6 +449,13 @@ $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.ta
 
 function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${state.galleryPartition || "all"}.${perPage}.${page}`; }
 function partitionQueryParam() { const partition = state.galleryPartition || "all"; return partition === "all" ? "" : `&partition=${encodeURIComponent(partition)}`; }
+function renderPartitionConfig() {
+  const list = $("partition-config-list");
+  if (!list) return;
+  const config = state.partitionConfig || {};
+  const entries = [["default", "默认图床（无分区）"], ...(state.partitions || []).filter(Boolean).map((name) => [name, name])];
+  list.innerHTML = entries.length ? entries.map(([key, label]) => `<label class="partition-row"><span class="partition-name">${escapeHtml(label)}</span><span class="partition-toggle"><input type="checkbox" data-partition="${escapeHtml(key)}" ${config[key]?.compress === false ? "checked" : ""} />保留原图</span></label>`).join("") : '<p class="field-hint">上传图片后，分区会显示在这里，可单独选择是否保留原图。</p>';
+}
 function updatePartitionUi() {
   const names = (state.partitions || []).filter(Boolean);
   const gallerySelect = $("gallery-partition");
@@ -449,6 +466,7 @@ function updatePartitionUi() {
     renderDropdown(uploadDropdown, [["", "默认图床"], ...names.map((name) => [name, name]), ["__new__", "新建分区…"]], ["", ...names, "__new__"].includes(wanted) ? wanted : "");
     syncNewPartitionInput();
   }
+  renderPartitionConfig();
 }
 function syncNewPartitionInput() {
   const input = $("upload-partition-new");

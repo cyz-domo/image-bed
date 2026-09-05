@@ -1,8 +1,9 @@
 import { readSession, authUnavailable } from "../_lib/auth.js";
 import { loadState, updateState, setSetting, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
+import { validPartitionConfig } from "../_lib/partition.js";
 
-const EDITABLE = new Set(["hero_background_url", "hero_blur", "accelerator_base_url", "daily_upload_limit", "max_file_mb"]);
+const EDITABLE = new Set(["hero_background_url", "hero_blur", "accelerator_base_url", "daily_upload_limit", "max_file_mb", "partition_config"]);
 function validHeroUrl(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && value.trim().length <= 2048; } catch { return false; } }
 function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
 const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100], hero_blur: [0, 40] };
@@ -28,6 +29,7 @@ export async function onRequest({ request, env }) {
     for (const [key, value] of entries) {
       if (key === "hero_background_url") { if (typeof value !== "string" || !validHeroUrl(value)) return error("SETTING_INVALID", "背景图地址必须是 https:// 开头的地址", 400); }
       else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
+      else if (key === "partition_config") { if (!validPartitionConfig(value)) return error("SETTING_INVALID", "分区压缩配置格式不正确", 400); }
       else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${LABELS[key]}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
     const normalizedEntries = entries.map(([key, value]) => [key, key === "accelerator_base_url" ? value.trim().replace(/\/$/, "") : LIMITS[key] ? toNumber(value, LIMITS[key]) : value]);

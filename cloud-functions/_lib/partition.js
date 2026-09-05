@@ -11,3 +11,11 @@ export function partitionOf(path) {
   if (!match) return "";
   return /^\d{4}$/.test(match[1]) ? "" : match[1];
 }
+
+// 分区压缩配置：{ "default"|"分区名": { compress: boolean } }；缺省视为压缩
+export function validPartitionConfig(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length > 50) return false;
+  return keys.every((key) => (key === "default" || validPartition(key)) && typeof value[key] === "object" && value[key] !== null && typeof value[key].compress === "boolean");
+}
