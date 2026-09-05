@@ -141,6 +141,8 @@ for (const tab of document.querySelectorAll(".settings-tab")) tab.onclick = () =
 
 /* ---------- 站点设置（背景图） ---------- */
 function applyHeroBlur(px) { document.documentElement.style.setProperty("--hero-blur", `${Math.min(40, Math.max(0, Number(px) || 0))}px`); }
+const HERO_HINT_KEY = "image-bed.hero-hint";
+function saveHeroHint(url, blur) { try { if (url) localStorage.setItem(HERO_HINT_KEY, JSON.stringify({ url, blur })); else localStorage.removeItem(HERO_HINT_KEY); } catch {} }
 function applyHero(url, blob) {
   state.heroUrl = url;
   document.body.classList.toggle("has-hero", Boolean(url));
@@ -148,6 +150,7 @@ function applyHero(url, blob) {
   $("bg").style.backgroundImage = "";
   if (url && blob) { activeHeroObjectUrl = URL.createObjectURL(blob); $("bg").style.backgroundImage = `url("${activeHeroObjectUrl}")`; }
   else if (url) $("bg").style.backgroundImage = `url("${url}")`;
+  else { delete document.documentElement.dataset.hero; document.documentElement.style.removeProperty("--hero-url"); }
   $("hero-remove").hidden = !url;
 }
 
@@ -156,14 +159,17 @@ function applyHero(url, blob) {
 async function loadHero(urlOverride) {
   const requestId = ++state.heroRequest;
   try {
-    let url = urlOverride;
+    let url = urlOverride, blur = 20;
     if (urlOverride === undefined) {
       const settings = (await api("/api/settings")).settings || {};
       url = settings.hero_background_url || null;
-      applyHeroBlur(settings.hero_blur ?? 20);
+      blur = Number(settings.hero_blur ?? 20);
+      applyHeroBlur(Number.isFinite(blur) ? blur : 20);
+      saveHeroHint(url, Number.isFinite(blur) ? blur : 20);
     }
     if (requestId !== state.heroRequest) return;
     if (!url) { applyHero(null); return; }
+    applyHero(url, null); // 先以远程 URL 直接上屏，不等整图下载完成
     const cached = await heroCacheGet(url);
     if (requestId !== state.heroRequest) return;
     if (cached) { applyHero(url, cached); return; }
@@ -174,10 +180,7 @@ async function loadHero(urlOverride) {
       if (requestId !== state.heroRequest) return;
       applyHero(url, blob);
       heroCachePut(url, blob);
-    } catch {
-      if (requestId !== state.heroRequest) return;
-      applyHero(url, null); // CSS 背景不受 CORS 限制，直接引用远程 URL
-    }
+    } catch { /* 远程 URL 已上屏，缓存失败可忽略 */ }
   } catch { if (requestId === state.heroRequest && !state.heroUrl) applyHero(null); }
 }
 
@@ -213,6 +216,7 @@ async function saveSettings() {
     const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
+    saveHeroHint(data.settings.hero_background_url || null, Number.isFinite(Number(data.settings.hero_blur)) ? Number(data.settings.hero_blur) : heroBlur);
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
   } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; showToast(error.message || "设置保存失败", true); }

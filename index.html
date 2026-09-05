@@ -11,6 +11,19 @@
     <meta property="og:url" content="/" />
     <meta property="og:image" content="/logo.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // 首帧前应用上次会话的背景图提示，避免框架先渲染、背景后出现
+      try {
+        const hint = JSON.parse(localStorage.getItem("image-bed.hero-hint") || "null");
+        if (hint && typeof hint.url === "string" && hint.url.startsWith("https://")) {
+          const root = document.documentElement;
+          root.dataset.hero = "1";
+          root.style.setProperty("--hero-url", `url("${hint.url.replace(/"/g, "%22")}")`);
+          const blur = Number(hint.blur);
+          if (Number.isFinite(blur)) root.style.setProperty("--hero-blur", `${Math.min(40, Math.max(0, blur))}px`);
+        }
+      } catch {}
+    </script>
     <link rel="canonical" href="/" />
     <link rel="icon" href="favicon.ico" type="image/x-icon" />
     <link rel="alternate icon" href="favicon.ico" sizes="any" />
