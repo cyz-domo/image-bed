@@ -265,7 +265,7 @@ async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const payload = await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
-  const form = new FormData(); form.append("file", payload); form.append("partition", ($("upload-partition")?.value || "").trim());
+  const form = new FormData(); form.append("file", payload); form.append("partition", state.currentUploadPartition || "");
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       // XHR 以获得真实上传进度（大 GIF 不压缩时尤其需要）
@@ -302,6 +302,9 @@ async function uploadOne(file, done, total) {
 async function upload(files) {
   const list = [...files];
   if (!list.length || state.uploading) return;
+  const partitionChoice = uploadPartition();
+  if (partitionChoice && (!/^[\w\u4e00-\u9fff][\w\u4e00-\u9fff-]{0,31}$/u.test(partitionChoice) || /^\d{4}$/.test(partitionChoice))) { showToast("分区名限 1–32 位，支持中文、字母、数字、连字符", true); return; }
+  state.currentUploadPartition = partitionChoice;
   setStatus("");
   $("upload-results").innerHTML = "";
   const progress = $("upload-progress"); const bar = $("upload-progress-bar");
@@ -316,7 +319,9 @@ async function upload(files) {
       done += 1; if (success) ok += 1;
       const percent = Math.round((done / list.length) * 100);
       bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
+      if (done < list.length) setStatus(`上传中 ${done}/${list.length}（${percent}%）`);
     }
+    state.uploadPartitionChoice = state.currentUploadPartition || "";
     setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
     $("results-footer").classList.toggle("hidden", !ok);
     if (ok) invalidateGalleryCache();
@@ -418,8 +423,25 @@ function updatePartitionUi() {
     gallerySelect.innerHTML = [["all", "全部分区"], ["default", "默认图床"], ...names.map((name) => [name, name])].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
     gallerySelect.value = current;
   }
-  const datalist = $("partition-options");
-  if (datalist) datalist.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+  const uploadSelect = $("upload-partition-select");
+  if (uploadSelect) {
+    const wanted = state.uploadPartitionChoice || "";
+    uploadSelect.innerHTML = [["", "默认图床"], ...names.map((name) => [name, name]), ["__new__", "新建分区…"]].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+    uploadSelect.value = ["", ...names, "__new__"].includes(wanted) ? wanted : "";
+    syncNewPartitionInput();
+  }
+}
+function syncNewPartitionInput() {
+  const select = $("upload-partition-select"), input = $("upload-partition");
+  if (!select || !input) return;
+  const isNew = select.value === "__new__";
+  input.classList.toggle("hidden", !isNew);
+  if (isNew) input.focus();
+}
+function uploadPartition() {
+  const select = $("upload-partition-select");
+  if (!select) return "";
+  return select.value === "__new__" ? ($("upload-partition")?.value || "").trim() : select.value;
 }
 function readGalleryCache(page, perPage) {
   try { const entry = JSON.parse(localStorage.getItem(galleryCacheKey(page, perPage)) || "null"); return entry && Array.isArray(entry.items) && Date.now() - entry.savedAt < GALLERY_CACHE_TTL ? entry : null; } catch { return null; }
@@ -586,6 +608,7 @@ $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").cl
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
+$("upload-partition-select").onchange = syncNewPartitionInput;
 $("setting-hero-blur").oninput = (event) => { const value = Number(event.target.value); $("hero-blur-value").textContent = value; applyHeroBlur(value); };
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
 document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });
