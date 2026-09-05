@@ -132,6 +132,28 @@ async function heroCacheDelete(url) {
   try { const db = await heroDb(); await new Promise((resolve) => { const tx = db.transaction("kv", "readwrite").objectStore("kv").delete(url); tx.onsuccess = resolve; tx.onerror = resolve; }); } catch {}
 }
 
+/* ---------- 玻璃下拉组件 ---------- */
+const SORT_OPTIONS = [["newest", "最新优先"], ["oldest", "最早优先"], ["name", "按名称"]];
+function dropdownValue(root) { return root?.querySelector(".dropdown-trigger")?.dataset.value ?? ""; }
+function renderDropdown(root, optionList, currentValue) {
+  const trigger = root?.querySelector(".dropdown-trigger"), menu = root?.querySelector(".dropdown-menu");
+  if (!trigger || !menu) return;
+  const selected = optionList.find(([value]) => value === currentValue) || optionList[0];
+  trigger.dataset.value = selected[0];
+  trigger.querySelector(".dropdown-label").textContent = selected[1];
+  menu.innerHTML = optionList.map(([value, label]) => `<li role="option" data-value="${escapeHtml(value)}" aria-selected="${value === selected[0]}">${escapeHtml(label)}</li>`).join("");
+}
+function wireDropdown(root, onChange) {
+  if (!root) return;
+  const trigger = root.querySelector(".dropdown-trigger"), menu = root.querySelector(".dropdown-menu");
+  const close = () => { root.classList.remove("open"); trigger.setAttribute("aria-expanded", "false"); };
+  trigger.onclick = (event) => { event.stopPropagation(); const open = !root.classList.contains("open"); document.querySelectorAll(".dropdown.open").forEach((node) => node !== root && node.classList.remove("open")); root.classList.toggle("open", open); trigger.setAttribute("aria-expanded", String(open)); };
+  trigger.onkeydown = (event) => { if (event.key === "ArrowDown" && !root.classList.contains("open")) { event.preventDefault(); trigger.click(); } };
+  menu.onclick = (event) => { const item = event.target.closest("li[data-value]"); if (!item) return; renderDropdown(root, [...menu.querySelectorAll("li")].map((li) => [li.dataset.value, li.textContent]), item.dataset.value); close(); onChange?.(item.dataset.value); };
+  document.addEventListener("click", (event) => { if (!root.contains(event.target)) close(); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && root.classList.contains("open")) { close(); trigger.focus(); } });
+}
+
 /* ---------- 设置面板分组 ---------- */
 function showSettingsTab(name) {
   for (const tab of document.querySelectorAll(".settings-tab")) { const active = tab.dataset.settingsTab === name; tab.classList.toggle("active", active); tab.setAttribute("aria-selected", String(active)); }
@@ -361,7 +383,7 @@ function updateSelectionUi() {
 
 function sortItems(items) {
   const list = [...items];
-  const mode = $("gallery-sort")?.value || "newest";
+  const mode = dropdownValue($("gallery-sort")) || "newest";
   if (mode === "name") list.sort((a, b) => a.path.localeCompare(b.path, "zh-CN"));
   else if (mode === "oldest") list.reverse();
   return list; // newest 即接口默认顺序（新图在前）
@@ -399,8 +421,10 @@ function renderGallery(items) {
   if (selectMode()) $("gallery").querySelectorAll(".shot.selectable").forEach((node) => node.onclick = () => { const path = node.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
   updateSelectionUi();
 }
-$("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
-$("gallery-partition").onchange = () => { state.galleryPartition = $("gallery-partition").value || "all"; try { localStorage.setItem("image-bed.gallery-partition", state.galleryPartition); } catch {} state.page = 1; loadGallery(); };
+$("gallery-sort") && wireDropdown($("gallery-sort"), () => renderGallery(state.pageItems || []));
+$("gallery-partition") && wireDropdown($("gallery-partition"), (value) => { state.galleryPartition = value || "all"; try { localStorage.setItem("image-bed.gallery-partition", state.galleryPartition); } catch {} state.page = 1; loadGallery(); });
+$("upload-partition-dd") && wireDropdown($("upload-partition-dd"), () => syncNewPartitionInput());
+renderDropdown($("gallery-sort"), SORT_OPTIONS, "newest");
 // 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
 function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 4) * 4; return Math.min(120, Math.max(4, Number.isFinite(n) && n >= 4 ? n : 12)); }
 function onPerPageChange() {
@@ -418,30 +442,24 @@ function partitionQueryParam() { const partition = state.galleryPartition || "al
 function updatePartitionUi() {
   const names = (state.partitions || []).filter(Boolean);
   const gallerySelect = $("gallery-partition");
-  if (gallerySelect) {
-    const current = ["all", "default", ...names].includes(state.galleryPartition) ? state.galleryPartition : "all";
-    gallerySelect.innerHTML = [["all", "全部分区"], ["default", "默认图床"], ...names.map((name) => [name, name])].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
-    gallerySelect.value = current;
-  }
-  const uploadSelect = $("upload-partition-select");
-  if (uploadSelect) {
+  if (gallerySelect) renderDropdown(gallerySelect, [["all", "全部分区"], ["default", "默认图床"], ...names.map((name) => [name, name])], state.galleryPartition);
+  const uploadDropdown = $("upload-partition-dd");
+  if (uploadDropdown) {
     const wanted = state.uploadPartitionChoice || "";
-    uploadSelect.innerHTML = [["", "默认图床"], ...names.map((name) => [name, name]), ["__new__", "新建分区…"]].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
-    uploadSelect.value = ["", ...names, "__new__"].includes(wanted) ? wanted : "";
+    renderDropdown(uploadDropdown, [["", "默认图床"], ...names.map((name) => [name, name]), ["__new__", "新建分区…"]], ["", ...names, "__new__"].includes(wanted) ? wanted : "");
     syncNewPartitionInput();
   }
 }
 function syncNewPartitionInput() {
-  const select = $("upload-partition-select"), input = $("upload-partition");
-  if (!select || !input) return;
-  const isNew = select.value === "__new__";
+  const input = $("upload-partition-new");
+  if (!input) return;
+  const isNew = dropdownValue($("upload-partition-dd")) === "__new__";
   input.classList.toggle("hidden", !isNew);
   if (isNew) input.focus();
 }
 function uploadPartition() {
-  const select = $("upload-partition-select");
-  if (!select) return "";
-  return select.value === "__new__" ? ($("upload-partition")?.value || "").trim() : select.value;
+  const value = dropdownValue($("upload-partition-dd"));
+  return value === "__new__" ? ($("upload-partition-new")?.value || "").trim() : value;
 }
 function readGalleryCache(page, perPage) {
   try { const entry = JSON.parse(localStorage.getItem(galleryCacheKey(page, perPage)) || "null"); return entry && Array.isArray(entry.items) && Date.now() - entry.savedAt < GALLERY_CACHE_TTL ? entry : null; } catch { return null; }
@@ -608,7 +626,6 @@ $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").cl
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
-$("upload-partition-select").onchange = syncNewPartitionInput;
 $("setting-hero-blur").oninput = (event) => { const value = Number(event.target.value); $("hero-blur-value").textContent = value; applyHeroBlur(value); };
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
 document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });
@@ -619,6 +636,7 @@ loadAccount();
 loadHero();
 initThemeToggle();
 try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) state.galleryPartition = savedPartition; } catch {}
+renderDropdown($("gallery-partition"), [["all", "全部分区"], ["default", "默认图床"]], state.galleryPartition);
 // 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
 // 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
