@@ -322,7 +322,7 @@ async function uploadOne(file, done, total) {
         xhr.open("POST", "/api/upload");
         xhr.responseType = "json";
         xhr.upload.onprogress = (event) => { if (event.lengthComputable && payload.size > 512 * 1024) setStatus(`${file.name} 上传中 ${(event.loaded / 1048576).toFixed(1)}/${(event.total / 1048576).toFixed(1)} MB（${done + 1}/${total}）`); };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `请求失败 (${xhr.status})`));
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || (xhr.status >= 500 ? `服务器处理失败 (${xhr.status})，文件可能过大或超出平台限制` : `请求失败 (${xhr.status})`)));
         xhr.onerror = () => reject(new Error("网络错误"));
         xhr.send(form);
       });
