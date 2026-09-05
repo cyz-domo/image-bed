@@ -455,6 +455,8 @@ function renderGallery(items) {
 $("gallery-sort") && wireDropdown($("gallery-sort"), () => renderGallery(state.pageItems || []));
 $("gallery-partition") && wireDropdown($("gallery-partition"), (value) => { state.galleryPartition = value || "all"; try { localStorage.setItem("image-bed.gallery-partition", state.galleryPartition); } catch {} state.page = 1; loadGallery(); });
 $("upload-partition-dd") && wireDropdown($("upload-partition-dd"), () => syncNewPartitionInput());
+$("upload-partition-new").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); commitNewPartition(); } };
+$("upload-partition-new").onblur = () => commitNewPartition();
 renderDropdown($("gallery-sort"), SORT_OPTIONS, "newest");
 // 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
 function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 4) * 4; return Math.min(120, Math.max(4, Number.isFinite(n) && n >= 4 ? n : 12)); }
@@ -490,11 +492,21 @@ function updatePartitionUi() {
   renderPartitionConfig();
 }
 function syncNewPartitionInput() {
+  const dd = $("upload-partition-dd"), input = $("upload-partition-new");
+  if (!dd || !input) return;
+  const isNew = dropdownValue(dd) === "__new__";
+  dd.classList.toggle("hidden", !isNew);
+  input.classList.toggle("hidden", isNew);
+  if (isNew) { input.value = ""; input.focus(); }
+}
+function commitNewPartition() {
   const input = $("upload-partition-new");
-  if (!input) return;
-  const isNew = dropdownValue($("upload-partition-dd")) === "__new__";
-  input.classList.toggle("hidden", !isNew);
-  if (isNew) input.focus();
+  if (!input || input.classList.contains("hidden")) return;
+  const name = input.value.trim();
+  if (name && (!/^[\w\u4e00-\u9fff][\w\u4e00-\u9fff-]{0,31}$/u.test(name) || /^\d{4}$/.test(name))) { showToast("分区名限 1–32 位，支持中文、字母、数字、连字符", true); input.focus(); return; }
+  if (name && !(state.partitions || []).includes(name)) state.partitions = [...(state.partitions || []), name];
+  state.uploadPartitionChoice = name;
+  updatePartitionUi();
 }
 function uploadPartition() {
   const value = dropdownValue($("upload-partition-dd"));
