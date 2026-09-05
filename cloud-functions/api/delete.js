@@ -3,8 +3,8 @@ import { ghApi } from "../_lib/github.js";
 import { readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
-// 只允许删除 images/ 目录下的图片文件，防止路径穿越或误删其他内容
-const imagePath = /^images\/\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp)$/i;
+// 只允许删除 images/ 目录下的图片与视频文件（含分区前缀），防止路径穿越或误删其他内容
+const imagePath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe?g|gif|webp|mp4)$/i;
 const encodePath = (path) => encodeURIComponent(path).replace(/%2F/g, "/");
 const MAX_BATCH = 20;
 

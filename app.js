@@ -217,7 +217,7 @@ async function loadSettings() {
     $("setting-accelerator-url").value = s.accelerator_base_url || "";
     $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
     $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
-    const hint = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
+    const hint = `PNG、JPG、GIF、WebP、MP4，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
     $("dropzone-hint").textContent = hint;
   } catch { /* 设置读取失败不阻断页面 */ }
 }
@@ -248,7 +248,7 @@ async function saveSettings() {
     state.partitionConfig = data.settings.partition_config || state.partitionConfig; renderPartitionConfig();
     saveHeroHint(data.settings.hero_background_url || null, Number.isFinite(Number(data.settings.hero_blur)) ? Number(data.settings.hero_blur) : heroBlur);
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
-    $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
+    $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP、MP4，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
   } catch (error) { errorEl.textContent = error.message; errorEl.hidden = false; showToast(error.message || "设置保存失败", true); }
   finally { saveButton.disabled = false; }
 }
@@ -293,11 +293,27 @@ async function compressForUpload(file) {
   } catch { return file; }
 }
 
+// 视频封面：截取开头一帧生成 WebP 作为缩略图上传（服务端无法转码视频）；失败返回 null，画廊退化为 video 元素本身
+function makeVideoPoster(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const timeout = setTimeout(() => done(null), 8000);
+    const done = (blob) => { clearTimeout(timeout); URL.revokeObjectURL(url); resolve(blob && blob.size ? blob : null); };
+    video.muted = true; video.preload = "metadata"; video.src = url;
+    video.onloadeddata = () => { try { video.currentTime = Math.min(0.1, (video.duration || 1) / 2); } catch { done(null); } };
+    video.onseeked = () => { try { const canvas = document.createElement("canvas"); const scale = Math.min(1, 640 / Math.max(video.videoWidth, 1)); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height); canvas.toBlob((blob) => done(blob), "image/webp", 0.7); } catch { done(null); } };
+    video.onerror = () => done(null);
+  });
+}
+
 async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
-  const payload = await compressForUpload(file);
+  const isVideo = file.type === "video/mp4";
+  const payload = isVideo ? file : await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
   const form = new FormData(); form.append("file", payload); form.append("partition", state.currentUploadPartition || "");
+  if (isVideo) { setStatus(`正在截取视频封面 ${file.name}……`); const poster = await makeVideoPoster(file); if (poster) form.append("poster", poster, "poster.webp"); }
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       // XHR 以获得真实上传进度（大 GIF 不压缩时尤其需要）
@@ -313,7 +329,9 @@ async function uploadOne(file, done, total) {
       const resultUrl = safeRemoteUrl(data.url);
       if (!resultUrl) throw new Error("服务端返回了无效图片地址");
       const result = document.createElement("div"); result.className = "result";
-      const preview = document.createElement("img"); preview.src = resultUrl; preview.alt = "已上传图片";
+      const preview = document.createElement(data.type === "video" ? "video" : "img");
+      if (data.type === "video") { preview.muted = true; preview.playsInline = true; if (data.thumb) preview.poster = data.thumb; }
+      preview.src = resultUrl; preview.alt = "已上传";
       const info = document.createElement("div"); info.className = "result-info";
       const urlText = document.createElement("span"); urlText.className = "url"; urlText.textContent = resultUrl;
       const actions = document.createElement("div"); actions.className = "result-actions";
@@ -418,11 +436,14 @@ function renderGallery(items) {
     <button class="icon-button" data-copy="${escapeHtml(`![image](${safeUrl})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="1.5" y="4.5" width="17" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 12.5v-5l2.5 3 2.5-3v5M13 7.5v5M13 12.5l-1.8-1.8M13 12.5l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   };
   const card = (item) => {
-    const imageUrl = safeRemoteUrl(item.thumb || item.url);
+    const imageUrl = safeRemoteUrl(item.thumb && item.type !== "video" ? item.thumb : item.url);
     const alt = escapeHtml(item.path || "图片");
+    const media = item.type === "video"
+      ? `<video muted loop preload="metadata" playsinline ${item.thumb ? `poster="${escapeHtml(safeRemoteUrl(item.thumb))}" ` : ""}src="${escapeHtml(safeRemoteUrl(item.url))}"></video>`
+      : `<img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" />`;
     return selectMode()
-      ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}"><img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" /><span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
-      : `<figure class="shot"><img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" /><figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
+      ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}">${media}<span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
+      : `<figure class="shot">${media}<figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
   };
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view, button.dataset.viewPath));
@@ -574,8 +595,21 @@ function openLightbox(url, path) {
 }
 function updateLightbox() {
   const item = (state.lightboxItems || [])[state.lightboxIndex]; if (!item) return; const url = item.url, path = item.path;
-  const image = $("lightbox-image"), status = $("lightbox-status"), token = (state.lightboxImageToken = (state.lightboxImageToken || 0) + 1); image.src = ""; image.hidden = true; status.hidden = false; status.textContent = state.lightboxLoading ? "正在加载更多图片…" : "图片加载中…";
-  image.onload = () => { if (token === state.lightboxImageToken) { image.hidden = false; status.hidden = true; } }; image.onerror = () => { if (token === state.lightboxImageToken) { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; } }; image.src = url; image.alt = path || "预览图片"; $("lightbox-url").textContent = url; $("lightbox-index").textContent = `${state.lightboxPage} 页 · ${state.lightboxIndex + 1} / ${state.lightboxItems.length}`; updateLightboxControls(); $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path); $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path); $("lightbox-open").href = url; $("lightbox-delete").style.display = state.loggedIn ? "" : "none"; $("lightbox-delete").onclick = () => deleteImage(url, path);
+  const image = $("lightbox-image"), videoEl = $("lightbox-video"), status = $("lightbox-status"), token = (state.lightboxImageToken = (state.lightboxImageToken || 0) + 1);
+  const isVideo = item.type === "video";
+  image.src = ""; image.hidden = true;
+  videoEl.pause?.(); videoEl.removeAttribute("src"); videoEl.hidden = true;
+  status.hidden = false; status.textContent = state.lightboxLoading ? "正在加载更多图片…" : isVideo ? "视频加载中…" : "图片加载中…";
+  if (isVideo) {
+    videoEl.onloadeddata = () => { if (token === state.lightboxImageToken) status.hidden = true; };
+    videoEl.onerror = () => { if (token === state.lightboxImageToken) { status.hidden = false; status.textContent = "视频加载失败，请稍后重试"; } };
+    videoEl.src = url;
+  } else {
+    image.onload = () => { if (token === state.lightboxImageToken) { image.hidden = false; status.hidden = true; } };
+    image.onerror = () => { if (token === state.lightboxImageToken) { status.hidden = false; status.textContent = "图片加载失败，请稍后重试"; } };
+    image.src = url;
+  }
+  image.alt = path || "预览图片"; $("lightbox-url").textContent = url; $("lightbox-index").textContent = `${state.lightboxPage} 页 · ${state.lightboxIndex + 1} / ${state.lightboxItems.length}`; updateLightboxControls(); $("lightbox-copy").onclick = async () => copyText(url, $("lightbox-copy"), path); $("lightbox-copy-md").onclick = async () => copyText(`![image](${url})`, $("lightbox-copy-md"), path); $("lightbox-open").href = url; $("lightbox-delete").style.display = state.loggedIn ? "" : "none"; $("lightbox-delete").onclick = () => deleteImage(url, path);
 }
 async function deleteImage(url, knownPath) {
   if (!await confirmAsync("确定删除这张图片？删除后链接立即失效。")) return;
@@ -589,7 +623,7 @@ async function deleteImage(url, knownPath) {
   } catch (error) { showToast(`删除失败：${error.message}`, true); }
   finally { $("lightbox-delete").disabled = false; $("lightbox-delete").textContent = "删除"; }
 }
-function closeLightbox() { $("lightbox-image").src = ""; $("lightbox").classList.add("hidden"); $("lightbox").setAttribute("aria-hidden", "true"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
+function closeLightbox() { $("lightbox-image").src = ""; const videoEl = $("lightbox-video"); videoEl.pause?.(); videoEl.removeAttribute("src"); $("lightbox").classList.add("hidden"); $("lightbox").setAttribute("aria-hidden", "true"); state.lightboxOpener?.focus?.(); state.lightboxOpener = null; }
 $("lightbox-close").onclick = closeLightbox;
 $("lightbox-prev").onclick = () => navigateLightbox(-1);
 $("lightbox-next").onclick = () => navigateLightbox(1);

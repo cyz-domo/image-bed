@@ -5,7 +5,8 @@ import { json, error } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
 import { partitionOf } from "../_lib/partition.js";
 
-const imagePath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/.+\.(?:png|jpe?g|gif|webp)$/i;
+const imagePath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/.+\.(?:png|jpe?g|gif|webp|mp4)$/i;
+const fileTypeOf = (path) => /\.mp4$/i.test(path) ? "video" : "image";
 const baseUrl = (path, env, settings) => imageUrl(env, path, settings);
 // KV 里缓存的数据最长复用 10 分钟；无 KV 时退回实例内存缓存
 const KV_CACHE_TTL_MS = 600000;
@@ -21,7 +22,7 @@ async function fetchFromGitHub(env, settings) {
     .filter((item) => item.type === "blob" && imagePath.test(item.path))
     .map((item) => {
       const thumbPath = `.thumbnails/${item.path.slice("images/".length)}`;
-      return { path: item.path, partition: partitionOf(item.path), url: baseUrl(item.path, env, settings), ...(thumbSet.has(thumbPath) ? { thumb: baseUrl(thumbPath, env, settings) } : {}) };
+      return { path: item.path, partition: partitionOf(item.path), type: fileTypeOf(item.path), url: baseUrl(item.path, env, settings), ...(thumbSet.has(thumbPath) ? { thumb: baseUrl(thumbPath, env, settings) } : {}) };
     })
     .reverse();
 }
@@ -45,7 +46,7 @@ export async function onRequest({ request, env }) {
       if (cached && Date.now() - cached.savedAt < KV_CACHE_TTL_MS) { items = cached.items; writeMemoryHistory(items); }
       else { items = await fetchFromGitHub(config, settings); await writeHistoryCache(config, items); writeMemoryHistory(items); }
     }
-    const normalizeItems = (list) => list.map((item) => ({ ...item, partition: item.partition ?? partitionOf(item.path), url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
+    const normalizeItems = (list) => list.map((item) => ({ ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
     items = normalizeItems(items);
     const partitions = [...new Set(items.map((item) => item.partition || "").filter(Boolean))];
     if (partition === "default") items = items.filter((item) => !item.partition);
