@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1 };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [] };
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
@@ -265,7 +265,7 @@ async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const payload = await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
-  const form = new FormData(); form.append("file", payload);
+  const form = new FormData(); form.append("file", payload); form.append("partition", ($("upload-partition")?.value || "").trim());
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       // XHR 以获得真实上传进度（大 GIF 不压缩时尤其需要）
@@ -395,6 +395,7 @@ function renderGallery(items) {
   updateSelectionUi();
 }
 $("gallery-sort").onchange = () => renderGallery(state.pageItems || []);
+$("gallery-partition").onchange = () => { state.galleryPartition = $("gallery-partition").value || "all"; try { localStorage.setItem("image-bed.gallery-partition", state.galleryPartition); } catch {} state.page = 1; loadGallery(); };
 // 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
 function perPageValue() { const n = Math.round(Number($("per-page-input").value) / 4) * 4; return Math.min(120, Math.max(4, Number.isFinite(n) && n >= 4 ? n : 12)); }
 function onPerPageChange() {
@@ -407,7 +408,19 @@ function onPerPageChange() {
 $("per-page-input").onchange = onPerPageChange;
 $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
 
-function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${perPage}.${page}`; }
+function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${state.galleryPartition || "all"}.${perPage}.${page}`; }
+function partitionQueryParam() { const partition = state.galleryPartition || "all"; return partition === "all" ? "" : `&partition=${encodeURIComponent(partition)}`; }
+function updatePartitionUi() {
+  const names = (state.partitions || []).filter(Boolean);
+  const gallerySelect = $("gallery-partition");
+  if (gallerySelect) {
+    const current = ["all", "default", ...names].includes(state.galleryPartition) ? state.galleryPartition : "all";
+    gallerySelect.innerHTML = [["all", "全部分区"], ["default", "默认图床"], ...names.map((name) => [name, name])].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+    gallerySelect.value = current;
+  }
+  const datalist = $("partition-options");
+  if (datalist) datalist.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+}
 function readGalleryCache(page, perPage) {
   try { const entry = JSON.parse(localStorage.getItem(galleryCacheKey(page, perPage)) || "null"); return entry && Array.isArray(entry.items) && Date.now() - entry.savedAt < GALLERY_CACHE_TTL ? entry : null; } catch { return null; }
 }
@@ -421,7 +434,7 @@ function writeGalleryCache(page, perPage, items, hasNext) { try { localStorage.s
 function invalidateGalleryCache() { try { Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX) || key.startsWith("image-bed.gallery-page1.")).forEach((key) => localStorage.removeItem(key)); } catch {} galleryPrefetches.clear(); }
 async function prefetchGallery(page, perPage) {
   const key = galleryCacheKey(page, perPage); if (readGalleryCache(page, perPage) || galleryPrefetches.has(key)) return;
-  const task = api(`/api/history?page=${page}&per_page=${perPage}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
+  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
   galleryPrefetches.set(key, task); await task;
 }
 
@@ -435,10 +448,11 @@ async function loadGallery() {
   if (cached) { renderGallery(cached.items); state.hasNext = cached.hasNext; $("gallery-count").textContent = `本页 ${cached.items.length} 张`; $("previous").disabled = state.page === 1; $("next").disabled = !cached.hasNext; $("page-label").textContent = `第 ${state.page} 页`; $("select-mode").classList.toggle("hidden", !cached.items.length); }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
-    const data = await api(`/api/history?page=${state.page}&per_page=${perPage}`);
+    const data = await api(`/api/history?page=${state.page}&per_page=${perPage}${partitionQueryParam()}`);
     if (requestId !== state.galleryRequest) return;
     const items = data.items;
     state.hasNext = data.has_next;
+    if (Array.isArray(data.partitions)) { state.partitions = data.partitions; updatePartitionUi(); }
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
     $("page-label").textContent = `第 ${state.page} 页`;
     $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
@@ -481,7 +495,7 @@ async function getGalleryPage(page, perPage) {
   if (cached) return { items: cached.items, has_next: cached.hasNext, cached: true };
   const key = galleryCacheKey(page, perPage);
   if (galleryPrefetches.has(key)) return galleryPrefetches.get(key);
-  const task = api(`/api/history?page=${page}&per_page=${perPage}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next); return data; }).finally(() => galleryPrefetches.delete(key));
+  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next); return data; }).finally(() => galleryPrefetches.delete(key));
   galleryPrefetches.set(key, task); return task;
 }
 async function navigateLightbox(direction) {
@@ -581,6 +595,7 @@ $("next").onclick = () => { state.page += 1; loadGallery(); };
 loadAccount();
 loadHero();
 initThemeToggle();
+try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) state.galleryPartition = savedPartition; } catch {}
 // 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
 // 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");

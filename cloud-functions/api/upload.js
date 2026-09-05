@@ -4,6 +4,7 @@ import { ghApi } from "../_lib/github.js";
 import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
+import { validPartition } from "../_lib/partition.js";
 
 const defaultMaxBytes = 10485760;
 const defaultDailyLimit = 100;
@@ -33,7 +34,11 @@ export async function onRequest({ request, env }) {
     const reservation = await reserveDailyQuota(env, limit).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
-    const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${year}/${month}/${randomName(extension)}`;
+    // 分区：images/<分区名>/年/月/文件；为空时为默认分区
+    const partition = String(form.get("partition") || "").trim();
+    if (partition && !validPartition(partition)) return error("PARTITION_INVALID", "分区名限 1–32 位，支持中文、字母、数字、连字符，且不能是纯数字年份", 400);
+    const partitionPrefix = partition ? `${partition}/` : "";
+    const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
     try {
       await ghApi(env, `contents/${path}`, { method: "PUT", body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, content: base64(new Uint8Array(output)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(`GitHub 写入失败 (${response.status})`); });
     } catch (cause) { await releaseDailyQuota(env, reservation).catch(() => {}); throw cause; }
@@ -41,13 +46,13 @@ export async function onRequest({ request, env }) {
     let thumbPath = null;
     try {
       const thumb = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
-      thumbPath = `.thumbnails/${year}/${month}/${path.split("/").pop()}`;
+      thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
       await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(new Uint8Array(thumb)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
     } catch { thumbPath = null; }
     await updateState((s) => { s.daily = { key: new Date().toISOString().slice(0, 10), count: reservation.used }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
     invalidateHistoryCache();
-    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
+    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
     const url = imageUrl(env, path, state.settings);
     return json({ path, url, markdown: `![image](${url})`, content_type: outputType, bytes: output.length, daily_remaining: reservation.remaining });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
