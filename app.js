@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [], partitionConfig: {} };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [], partitionConfig: {}, isAdmin: false, allowedUsers: [] };
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
@@ -220,6 +220,10 @@ async function loadSettings() {
     const data = await api("/api/settings");
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
+    state.isAdmin = Array.isArray(s.allowed_users);
+    state.allowedUsers = state.isAdmin ? [...s.allowed_users] : [];
+    renderAllowedUsers();
+    const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
     state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
     const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
     $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
@@ -231,6 +235,22 @@ async function loadSettings() {
   } catch { /* 设置读取失败不阻断页面 */ }
 }
 
+function renderAllowedUsers() {
+  const list = $("allowed-users-list");
+  if (!list) return;
+  list.innerHTML = (state.allowedUsers || []).length ? (state.allowedUsers || []).map((name, index) => `<div class="allowed-user-row"><span class="partition-name">${escapeHtml(name)}</span><button type="button" class="link-button" data-remove-user="${index}" aria-label="移除 ${escapeHtml(name)}">移除</button></div>`).join("") : '<p class="field-hint">暂无其他用户。添加后对方用 GitHub 登录即可上传。</p>';
+  list.querySelectorAll("[data-remove-user]").forEach((button) => button.onclick = () => { state.allowedUsers.splice(Number(button.dataset.removeUser), 1); renderAllowedUsers(); });
+}
+function addUserToAllowlist() {
+  const input = $("setting-new-user");
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) return;
+  if ((state.allowedUsers || []).some((existing) => existing.toLowerCase() === name.toLowerCase())) { input.value = ""; return; }
+  state.allowedUsers = [...(state.allowedUsers || []), name];
+  input.value = "";
+  renderAllowedUsers();
+}
 function readPartitionConfigFromUi() {
   const config = {};
   for (const checkbox of document.querySelectorAll("#partition-config-list input[type=checkbox][data-partition]")) config[checkbox.dataset.partition] = { compress: !checkbox.checked };
@@ -251,10 +271,11 @@ async function saveSettings() {
   if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 20) { storageError.textContent = "单张大小上限需为 1–20 MB（jsDelivr 分发上限）"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi() }) });
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi(), allowed_users: state.allowedUsers }) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
     state.partitionConfig = data.settings.partition_config || state.partitionConfig; renderPartitionConfig();
+    if (Array.isArray(data.settings.allowed_users)) { state.allowedUsers = [...data.settings.allowed_users]; renderAllowedUsers(); }
     saveHeroHint(data.settings.hero_background_url || null, Number.isFinite(Number(data.settings.hero_blur)) ? Number(data.settings.hero_blur) : heroBlur);
     $("setting-daily-limit").value = data.settings.daily_upload_limit; $("setting-max-size").value = data.settings.max_file_mb;
     $("dropzone-hint").textContent = `PNG、JPG、GIF、WebP、MP4，单张最大 ${Math.round(data.settings.max_file_mb)} MB`;
@@ -765,6 +786,8 @@ $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").cl
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
+$("setting-add-user").onclick = addUserToAllowlist;
+$("setting-new-user").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); addUserToAllowlist(); } };
 $("setting-hero-blur").oninput = (event) => { const value = Number(event.target.value); $("hero-blur-value").textContent = value; applyHeroBlur(value); };
 $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await saveSettings(); };
 document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });

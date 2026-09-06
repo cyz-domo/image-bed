@@ -25,7 +25,12 @@ async function key(env) {
   if (!config.SESSION_SECRET) throw new Error("SESSION_SECRET 未配置");
   return crypto.subtle.importKey("raw", encoder.encode(config.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
-export async function sessionValue(login, env, avatarUrl = "") { const sessionId = b64(crypto.getRandomValues(new Uint8Array(12))); const safeAvatar = typeof avatarUrl === "string" && /^https:\/\//.test(avatarUrl) ? avatarUrl : ""; const payload = b64(encoder.encode(JSON.stringify({ login, avatar_url: safeAvatar, sid: sessionId, exp: Date.now() + 86400000 }))); const signature = b64(new Uint8Array(await crypto.subtle.sign("HMAC", await key(env), encoder.encode(payload)))); return `${payload}.${signature}`; }
+export async function sessionValue(login, env, avatarUrl = "", email = "") { const sessionId = b64(crypto.getRandomValues(new Uint8Array(12))); const safeAvatar = typeof avatarUrl === "string" && /^https:\/\//.test(avatarUrl) ? avatarUrl : ""; const safeEmail = typeof email === "string" ? email.slice(0, 254) : ""; const payload = b64(encoder.encode(JSON.stringify({ login, avatar_url: safeAvatar, email: safeEmail, sid: sessionId, exp: Date.now() + 86400000 }))); const signature = b64(new Uint8Array(await crypto.subtle.sign("HMAC", await key(env), encoder.encode(payload)))); return `${payload}.${signature}`; }
+
+// 允许名单：环境变量 ALLOWED_GITHUB_LOGIN（管理员）+ 设置中的 allowed_users（用户名或公开邮箱）
+export function allowedLogins(state, env) { const config = runtimeEnv(env); return new Set([config.ALLOWED_GITHUB_LOGIN, ...((state?.settings?.allowed_users) || [])].filter(Boolean).map((value) => String(value).trim().toLowerCase())); }
+export function userMatchesAllowlist(user, env, state) { const allowed = allowedLogins(state, env); return [user?.login, user?.email].some((value) => typeof value === "string" && allowed.has(value.trim().toLowerCase())); }
+export function isAdminSession(session, env) { const admin = runtimeEnv(env).ALLOWED_GITHUB_LOGIN; return !!session?.login && !!admin && session.login.toLowerCase() === String(admin).trim().toLowerCase(); }
 export async function readSession(request, env) {
   const value = getCookie(request, "image_session"); if (!value) return null; const [payload, signature] = value.split("."); if (!payload || !signature) return null;
   const valid = await crypto.subtle.verify("HMAC", await key(env), bytes(signature), encoder.encode(payload)); if (!valid) return null;

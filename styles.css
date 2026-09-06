@@ -138,6 +138,10 @@ h1 { margin:0 0 24px; font-size:clamp(46px,7vw,82px); line-height:1.02; letter-s
 .settings-card .field-row { margin-top:0; }
 .settings-card .ghost-button { width:100%; margin-top:6px; }
 #settings-account-info { margin:0; }
+.allowed-user-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+.allowed-user-row:last-of-type { border-bottom:0; }
+.add-user-row { display:flex; gap:8px; margin-top:12px; }
+.add-user-row input { flex:1; min-width:0; min-height:36px; padding:6px 14px; border:1px solid var(--line); border-radius:999px; color:var(--text); background:color-mix(in srgb,var(--surface-solid) 60%,transparent); backdrop-filter:blur(14px) saturate(140%); -webkit-backdrop-filter:blur(14px) saturate(140%); font:inherit; font-size:13px; }
 .partition-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
 .partition-row:last-child { border-bottom:0; }
 .partition-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:500; }
