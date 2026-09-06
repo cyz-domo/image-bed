@@ -15,3 +15,8 @@ node_modules/
 # Never commit or deploy GitHub App private keys or local upload copies.
 *.pem
 images/
+
+# Local tooling workspace state (ZCode plans, codegraph index, brainstorm servers)
+.zcode/
+.codegraph/
+.superpowers/
