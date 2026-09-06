@@ -94,6 +94,7 @@ async function loadAccount() {
     if (data.authenticated) {
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login, avatarUrl: data.avatar_url }));
       renderLoggedIn(data.login, data.avatar_url);
+      refreshPartitions(); // 登录确认后轻量拉取分区列表，首页下拉立即可用
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
       if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
@@ -109,6 +110,14 @@ async function loadAccount() {
       console.warn("auth/me:", error.message);
     }
   }
+}
+
+// 轻量刷新分区列表：history 接口的 partitions 由全量列表计算，最小分页即可拿到完整分区名
+async function refreshPartitions() {
+  try {
+    const data = await api("/api/history?page=1&per_page=4");
+    if (Array.isArray(data.partitions) && data.partitions.length) { state.partitions = data.partitions; updatePartitionUi(); }
+  } catch { /* 分区拉取失败不影响上传，图片库打开时会再取 */ }
 }
 
 // 背景图缓存：图片字节存 IndexedDB，按 URL 比对，只有设置变化时才重新下载
@@ -533,6 +542,7 @@ function renderPartitionConfig() {
 }
 function updatePartitionUi() {
   const names = (state.partitions || []).filter(Boolean);
+  if (names.length) { try { localStorage.setItem("image-bed.partitions", JSON.stringify(names)); } catch {} }
   const gallerySelect = $("gallery-partition");
   if (gallerySelect) renderDropdown(gallerySelect, [["all", "全部分区"], ["default", "默认图床"], ...names.map((name) => [name, name])], state.galleryPartition);
   const uploadDropdown = $("upload-partition-dd");
@@ -753,6 +763,7 @@ loadAccount();
 loadHero();
 initThemeToggle();
 try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) { state.galleryPartition = savedPartition; renderDropdown($("gallery-partition"), [["all", "全部分区"], ["default", "默认图床"]], state.galleryPartition); } } catch {}
+try { const savedPartitions = JSON.parse(localStorage.getItem("image-bed.partitions") || "null"); if (Array.isArray(savedPartitions)) state.partitions = savedPartitions; } catch {}
 // 初始进入：switchTab 会按登录态分流图片库；但 loadAccount 尚未返回，
 // 先假设未登录显示引导卡片，loadAccount 确认登录后（若停在图片库）再真正加载
 switchTab(location.hash === "#gallery" ? "gallery" : "home");
