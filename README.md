@@ -2,7 +2,7 @@
 
 个人 GitHub 图床：网页上传，图片保存到 GitHub 仓库，并生成公开可访问的图片链接。部署在腾讯云 [EdgeOne Pages](https://edgeone.ai/document/160428830614245376)（静态前端 + Cloud Functions API），可绑定自定义域名（示例：`images.example.com`）。
 
-- **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持在图片库删除已传图片
+- **上传**：仅 `ALLOWED_GITHUB_LOGIN` 指定的 GitHub 账号（OAuth 登录后上传），每日上限 `DAILY_UPLOAD_LIMIT`（默认 100 张），支持 PNG/JPG/GIF/WebP 图片与 MP4 视频（视频始终保留原样，客户端自动截帧生成封面缩略图），支持在图片库删除已传内容
 - **分区**：上传时可选择或直接输入新分区名（首个文件上传时自动创建）；图片存储在 `images/<分区名>/年/月/` 下，图片库可按分区筛选。分区名支持中文、字母、数字、连字符（1–32 位，不能是纯 4 位数字）；不填分区即为默认图床，历史图片路径不变
 - **图片链接**：公开可访问。任何人只要拥有链接即可查看图片，请勿上传敏感内容
 - **图片库**：仅登录用户可见，用于浏览、排序、复制链接和删除图片
@@ -17,6 +17,7 @@
 
 ```text
 index.html / app.js / styles.css   页面入口、交互逻辑与 Apple 风格视觉系统
+fonts/                              自托管开源字体 Noto Sans SC（SIL OFL，三档字重）
 logo.jpg                            顶栏品牌 Logo 与社交分享预览图（约 18 KB）
 favicon.ico                        网站图标（64×64，约 6 KB）
 favicon.svg                        SVG 备用图标

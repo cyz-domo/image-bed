@@ -496,8 +496,8 @@ function syncNewPartitionInput() {
   const dd = $("upload-partition-dd"), input = $("upload-partition-new");
   if (!dd || !input) return;
   const isNew = dropdownValue(dd) === "__new__";
-  dd.classList.toggle("hidden", !isNew);
-  input.classList.toggle("hidden", isNew);
+  dd.classList.toggle("hidden", isNew); // 新建模式下隐藏下拉，其余时候显示
+  input.classList.toggle("hidden", !isNew); // 仅新建模式显示输入框
   if (isNew) { input.value = ""; input.focus(); }
 }
 function commitNewPartition() {

@@ -1,3 +1,7 @@
+/* 自托管开源字体 Noto Sans SC（SIL OFL）：本地文件避免 CDN 阻塞页面加载 */
+@font-face { font-family:"Noto Sans SC"; font-style:normal; font-weight:400; font-display:swap; src:url("fonts/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2"); }
+@font-face { font-family:"Noto Sans SC"; font-style:normal; font-weight:500; font-display:swap; src:url("fonts/noto-sans-sc-chinese-simplified-500-normal.woff2") format("woff2"); }
+@font-face { font-family:"Noto Sans SC"; font-style:normal; font-weight:700; font-display:swap; src:url("fonts/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2"); }
 :root {
   color-scheme: light;
   --bg: #f5f5f7;
