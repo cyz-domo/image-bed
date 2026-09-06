@@ -1,5 +1,6 @@
 import { ghApi } from "../../_lib/github.js";
 import { readSession, isAdminSession } from "../../_lib/auth.js";
+import { loadState } from "../../_lib/state.js";
 import { error, json } from "../../_lib/http.js";
 
 export async function onRequest({ request, env }) {
@@ -9,7 +10,10 @@ export async function onRequest({ request, env }) {
   } catch {}
   if (!session || !isAdminSession(session, env)) return error("FORBIDDEN", "仅管理员可访问", 403);
 
-  const resp = await ghApi(env, `git/trees/main?recursive=1`);
+  const [resp, state] = await Promise.all([
+    ghApi(env, `git/trees/main?recursive=1`),
+    loadState(env)
+  ]);
   if (!resp.ok) return error("FETCH_FAILED", "获取仓库树失败", resp.status);
 
   const tree = await resp.json();
@@ -19,6 +23,7 @@ export async function onRequest({ request, env }) {
   let totalSize = 0;
   const monthlyCounts = {};
   const monthlySizes = {};
+  const owners = state.owners || {};
 
   for (const entry of entries) {
     if (entry.type !== "blob") continue;
@@ -37,5 +42,7 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  return json({ totalImages, totalSize, monthlyCounts, monthlySizes });
+  const uniqueUsers = new Set(Object.values(owners).filter(Boolean));
+
+  return json({ totalImages, totalSize, totalUsers: uniqueUsers.size, monthlyCounts, monthlySizes });
 }

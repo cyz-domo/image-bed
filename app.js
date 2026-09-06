@@ -289,6 +289,112 @@ async function saveSettings() {
 
 let storageStatsRequest = 0;
 let storageStatsLoaded = false;
+let storageStatsData = null;
+let storageStatsPage = 1;
+const STORAGE_STATS_PER_PAGE = 6;
+
+function formatSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes === 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i - 1]}`;
+}
+
+function renderStorageStats() {
+  const container = $("storage-stats-content");
+  if (!container || !storageStatsData) return;
+
+  const data = storageStatsData;
+  const monthlyCounts = data.monthlyCounts || {};
+  const monthlySizes = data.monthlySizes || {};
+  const allMonths = Object.keys(monthlyCounts).sort().reverse();
+
+  const overviewHtml = `
+    <div class="stats-overview">
+      <div class="stat-card">
+        <div class="stat-value">${(data.totalImages || 0).toLocaleString()}</div>
+        <div class="stat-label">总图片数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${formatSize(data.totalSize || 0)}</div>
+        <div class="stat-label">仓库占用空间</div>
+        <div class="stat-hint">含压缩后图片与缩略图</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${data.totalUsers || 0}</div>
+        <div class="stat-label">上传用户数</div>
+      </div>
+    </div>
+  `;
+
+  let trendHtml = '';
+  if (allMonths.length > 0) {
+    const totalPages = Math.ceil(allMonths.length / STORAGE_STATS_PER_PAGE);
+    const startIdx = (storageStatsPage - 1) * STORAGE_STATS_PER_PAGE;
+    const pageMonths = allMonths.slice(startIdx, startIdx + STORAGE_STATS_PER_PAGE);
+    const pageData = pageMonths.map(m => ({ month: m, count: monthlyCounts[m] || 0, size: monthlySizes[m] || 0 }));
+    const maxCount = Math.max(...pageData.map(m => m.count), 1);
+
+    const monthOptions = allMonths.map(m => `<option value="${m}">${m}</option>`).join('');
+
+    trendHtml = `
+      <div class="stats-trend">
+        <div class="stats-trend-header">
+          <h4>月度增长趋势</h4>
+          <div class="stats-trend-controls">
+            <span class="stats-trend-info">共 ${allMonths.length} 个月</span>
+          </div>
+        </div>
+        <div class="trend-table-wrapper">
+          <table class="trend-table">
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th>新增图片</th>
+                <th>新增大小</th>
+                <th>图片趋势</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pageData.map(m => `
+                <tr>
+                  <td>${escapeHtml(m.month)}</td>
+                  <td>${m.count.toLocaleString()}</td>
+                  <td>${formatSize(m.size)}</td>
+                  <td>
+                    <div class="trend-bar">
+                      <div class="trend-bar-fill" style="width: ${(m.count / maxCount * 100)}%"></div>
+                      <span class="trend-bar-label">${m.count}</span>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${totalPages > 1 ? `
+          <div class="stats-pager">
+            <button class="ghost-button small" id="stats-prev" ${storageStatsPage <= 1 ? 'disabled' : ''}>上一页</button>
+            <span class="stats-page-label">第 ${storageStatsPage} / ${totalPages} 页</span>
+            <button class="ghost-button small" id="stats-next" ${storageStatsPage >= totalPages ? 'disabled' : ''}>下一页</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  } else {
+    trendHtml = '<div class="stats-empty">暂无历史数据</div>';
+  }
+
+  container.innerHTML = overviewHtml + trendHtml;
+
+  const prevBtn = $("stats-prev");
+  const nextBtn = $("stats-next");
+  if (prevBtn) prevBtn.onclick = () => { storageStatsPage--; renderStorageStats(); };
+  if (nextBtn) nextBtn.onclick = () => { storageStatsPage++; renderStorageStats(); };
+}
+
 async function loadStorageStats(forceReload = false) {
   const container = $("storage-stats-content");
   if (!container) return;
@@ -298,95 +404,10 @@ async function loadStorageStats(forceReload = false) {
     container.innerHTML = '<div class="skeleton" style="height:200px"></div>';
     const data = await api("/api/admin/usage");
     if (requestId !== storageStatsRequest) return;
-    
-    const formatSize = (bytes) => {
-      if (!Number.isFinite(bytes) || bytes < 0) return "—";
-      if (bytes === 0) return "0 B";
-      if (bytes < 1024) return `${bytes} B`;
-      const units = ["KB", "MB", "GB", "TB"];
-      const i = Math.floor(Math.log(bytes) / Math.log(1024));
-      return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i - 1]}`;
-    };
-    
-    const stats = {
-      totalImages: data.totalImages || 0,
-      totalSize: data.totalSize || 0,
-      monthlyData: []
-    };
-    
-    const monthlyCounts = data.monthlyCounts || {};
-    const monthlySizes = data.monthlySizes || {};
-    const months = Object.keys(monthlyCounts).sort();
-    
-    for (const month of months) {
-      stats.monthlyData.push({
-        month,
-        count: monthlyCounts[month] || 0,
-        size: monthlySizes[month] || 0,
-        sizeFormatted: formatSize(monthlySizes[month] || 0)
-      });
-    }
-    
-    const overviewHtml = `
-      <div class="stats-overview">
-        <div class="stat-card">
-          <div class="stat-value">${stats.totalImages.toLocaleString()}</div>
-          <div class="stat-label">总图片数</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${formatSize(stats.totalSize)}</div>
-          <div class="stat-label">仓库占用空间</div>
-          <div class="stat-hint">含压缩后图片与缩略图</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${stats.monthlyData.length}</div>
-          <div class="stat-label">活跃月份数</div>
-        </div>
-      </div>
-    `;
-    
-    let trendHtml = '';
-    if (stats.monthlyData.length > 0) {
-      const maxCount = Math.max(...stats.monthlyData.map(m => m.count));
-      
-      trendHtml = `
-        <div class="stats-trend">
-          <h4>月度增长趋势</h4>
-          <div class="trend-table-wrapper">
-            <table class="trend-table">
-              <thead>
-                <tr>
-                  <th>月份</th>
-                  <th>新增图片</th>
-                  <th>新增大小</th>
-                  <th>图片趋势</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${stats.monthlyData.map(m => `
-                  <tr>
-                    <td>${escapeHtml(m.month)}</td>
-                    <td>${m.count.toLocaleString()}</td>
-                    <td>${m.sizeFormatted}</td>
-                    <td>
-                      <div class="trend-bar">
-                        <div class="trend-bar-fill" style="width: ${maxCount > 0 ? (m.count / maxCount * 100) : 0}%"></div>
-                        <span class="trend-bar-label">${m.count}</span>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    } else {
-      trendHtml = '<div class="stats-empty">暂无历史数据</div>';
-    }
-    
-    container.innerHTML = overviewHtml + trendHtml;
+    storageStatsData = data;
+    storageStatsPage = 1;
     storageStatsLoaded = true;
+    renderStorageStats();
   } catch (error) {
     if (requestId !== storageStatsRequest) return;
     container.innerHTML = `<div class="stats-error">加载统计数据失败：${escapeHtml(error.message)}</div>`;
