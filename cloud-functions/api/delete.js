@@ -1,4 +1,4 @@
-import { readSession, authUnavailable, isAdminSession } from "../_lib/auth.js";
+import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
 import { loadState, readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
@@ -42,11 +42,10 @@ export async function onRequest({ request, env }) {
 
     // 数据隔离：普通用户只能删除自己上传的文件，管理员可删除全部（未记录归属的历史文件仅管理员可删）
     const owners = ((await loadState(env)).owners) || {};
-    const admin = isAdminSession(session, env);
     const results = [];
     const deletable = [];
     for (const path of paths) {
-      if (!admin && owners[path] !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
+      if (owners[path] !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
       deletable.push(path);
     }
     // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突

@@ -1,5 +1,5 @@
 import { ghApi } from "../_lib/github.js";
-import { readSession, isAdminSession } from "../_lib/auth.js";
+import { readSession } from "../_lib/auth.js";
 import { readHistoryCache, writeHistoryCache, loadState, readMemoryHistory, writeMemoryHistory } from "../_lib/state.js";
 import { json, error } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
@@ -51,7 +51,7 @@ export async function onRequest({ request, env }) {
     // 数据隔离：图片按上传者归属，普通用户仅可见自己上传的，管理员可见全部
     const owners = currentState.owners || {};
     items = items.map((item) => ({ ...item, owner: owners[item.path] || "" }));
-    if (!isAdminSession(session, env)) items = items.filter((item) => item.owner === session.login);
+    items = items.filter((item) => item.owner === session.login);
     const partitions = [...new Set(items.map((item) => item.partition || "").filter(Boolean))];
     if (partition === "default") items = items.filter((item) => !item.partition);
     else if (partition !== "all") items = items.filter((item) => item.partition === partition);
