@@ -167,7 +167,6 @@ function wireDropdown(root, onChange) {
 function showSettingsTab(name) {
   for (const tab of document.querySelectorAll(".settings-tab")) { const active = tab.dataset.settingsTab === name; tab.classList.toggle("active", active); tab.setAttribute("aria-selected", String(active)); }
   for (const page of document.querySelectorAll(".settings-page")) page.classList.toggle("hidden", page.dataset.settingsPage !== name);
-  if (name === "stats") loadStorageStats();
 }
 for (const tab of document.querySelectorAll(".settings-tab")) tab.onclick = () => showSettingsTab(tab.dataset.settingsTab);
 
@@ -225,7 +224,7 @@ async function loadSettings() {
     state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
     renderAllowedUsers();
     const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
-    const statsTab = $("settings-tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
+    const statsTab = $("tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
     state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
     const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
     $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
@@ -287,10 +286,10 @@ async function saveSettings() {
 
 let storageStatsRequest = 0;
 let storageStatsLoaded = false;
-async function loadStorageStats() {
+async function loadStorageStats(forceReload = false) {
   const container = $("storage-stats-content");
   if (!container) return;
-  if (storageStatsLoaded) return;
+  if (storageStatsLoaded && !forceReload) return;
   const requestId = ++storageStatsRequest;
   try {
     container.innerHTML = '<div class="skeleton" style="height:200px"></div>';
@@ -854,10 +853,11 @@ function switchTab(tab, moveFocus = false) {
     node.classList.toggle("active", selected); node.setAttribute("aria-selected", String(selected)); node.setAttribute("tabindex", selected ? "0" : "-1");
   }
   if (moveFocus) tabs.find((node) => node.dataset.tab === tab)?.focus();
-  $("page-home").classList.toggle("hidden", tab !== "home"); $("page-gallery").classList.toggle("hidden", tab !== "gallery");
-  history.replaceState(null, "", tab === "home" ? "/" : "/#gallery");
-  if (tab === "home") updatePartitionUi(); // 回到上传页时同步分区控件状态，避免残留输入模式
+  $("page-home").classList.toggle("hidden", tab !== "home"); $("page-gallery").classList.toggle("hidden", tab !== "gallery"); $("page-stats").classList.toggle("hidden", tab !== "stats");
+  history.replaceState(null, "", tab === "home" ? "/" : tab === "gallery" ? "/#gallery" : "/#stats");
+  if (tab === "home") updatePartitionUi();
   if (tab === "gallery") { if (state.loggedIn) loadGallery(); else { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); } }
+  if (tab === "stats") { if (state.loggedIn && state.isAdmin) loadStorageStats(); else { $("storage-stats-content").innerHTML = '<p class="stats-login-hint">仅管理员可查看存储统计。<a class="primary-button" href="/api/auth/login">使用 GitHub 登录</a></p>'; } }
 }
 for (const node of document.querySelectorAll(".nav-link")) {
   node.onclick = () => switchTab(node.dataset.tab);
