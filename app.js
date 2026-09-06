@@ -336,14 +336,17 @@ function readAsBase64(blob) {
   return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(new Error("读取文件失败")); reader.readAsDataURL(blob); });
 }
 
-// 视频直传 GitHub：EdgeOne 函数请求体上限 6MB，浏览器持短期安装令牌直接 PUT 到 GitHub API，函数只签发凭证与登记
-async function uploadVideo(file, done, total) {
-  if (file.size > 20 * 1048576) { $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：视频不能超过 20 MB（jsDelivr 单文件分发上限）</span></div>`); return false; }
+// 大文件直传 GitHub：EdgeOne 函数请求体上限 6MB，超过安全线的载荷（视频一律；图片压缩后仍超 5MB 时）
+// 由浏览器持短期安装令牌直接 PUT 到 GitHub API（≤20MB），函数只签发凭证与登记
+const DIRECT_EXT = { "video/mp4": "mp4", "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+async function uploadDirect(file, done, total) {
+  if (file.size > 20 * 1048576) { $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：文件不能超过 20 MB（jsDelivr 单文件分发上限）</span></div>`); return false; }
   try {
     setStatus(`正在获取上传凭证（${done + 1}/${total}）……`);
     const session = await api("/api/upload/token", { method: "POST" });
+    const extension = DIRECT_EXT[file.type] || "bin";
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-    const name = `${stamp}-${Math.random().toString(36).slice(2, 10)}.mp4`;
+    const name = `${stamp}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
     const partition = state.currentUploadPartition || "";
     const partitionPrefix = partition ? `${partition}/` : "";
     const now = new Date(); const year = now.getUTCFullYear(); const month = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -362,11 +365,13 @@ async function uploadVideo(file, done, total) {
     setStatus(`${file.name} 正在直传 GitHub（${done + 1}/${total}）……`);
     await putGithub(path, await readAsBase64(file), `chore: upload ${name}`);
     let thumbPath = null;
-    const posterBlob = await makeVideoPoster(file);
-    if (posterBlob) {
-      setStatus(`正在上传视频封面（${done + 1}/${total}）……`);
-      const posterBase64 = await readAsBase64(posterBlob);
-      if (posterBase64) { thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${name}`; try { await putGithub(thumbPath, posterBase64, `chore: thumb ${name}`); } catch { thumbPath = null; } }
+    if (file.type === "video/mp4") {
+      const posterBlob = await makeVideoPoster(file);
+      if (posterBlob) {
+        setStatus(`正在上传视频封面（${done + 1}/${total}）……`);
+        const posterBase64 = await readAsBase64(posterBlob);
+        if (posterBase64) { thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${name}`; try { await putGithub(thumbPath, posterBase64, `chore: thumb ${name}`); } catch { thumbPath = null; } }
+      }
     }
     const data = await api("/api/upload/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, partition, bytes: file.size, thumb_path: thumbPath }) });
     if (!appendUploadResult(data)) throw new Error("服务端返回了无效地址");
@@ -381,9 +386,10 @@ async function uploadVideo(file, done, total) {
 async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const isVideo = file.type === "video/mp4";
-  if (isVideo) return uploadVideo(file, done, total); // 视频绕过函数 6MB 请求体限制，直传 GitHub
+  if (isVideo) return uploadDirect(file, done, total); // 视频绕过函数 6MB 请求体限制，直传 GitHub
   const payload = await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
+  if (payload.size > 5 * 1048576) return uploadDirect(payload, done, total); // 压缩后仍超 5MB（或保留原图），走直传
   const form = new FormData(); form.append("file", payload); form.append("partition", state.currentUploadPartition || "");
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
