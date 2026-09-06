@@ -40,7 +40,7 @@ export async function onRequest({ request, env }) {
     let output = source; let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : isVideo ? "mp4" : "webp"; let outputType = sniffed;
     if (!keepOriginal && sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
     if (!keepOriginal && output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
-    if (isVideo && output.length > 104857600) return error("FILE_TOO_LARGE", "视频不能超过 100 MB（GitHub 单文件上限）", 413);
+    if (isVideo && output.length > 20971520) return error("FILE_TOO_LARGE", "视频不能超过 20 MB（jsDelivr 单文件分发上限）", 413);
     const reservation = await reserveDailyQuota(env, limit).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);

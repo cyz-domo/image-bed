@@ -21,7 +21,7 @@ export async function onRequest({ request, env }) {
     if (partition && !validPartition(partition)) return error("PARTITION_INVALID", "分区名不合法", 400);
     if (!videoPath.test(path)) return error("PATH_INVALID", "视频路径不合法", 400);
     if (partitionOf(path) !== partition) return error("PATH_INVALID", "路径与分区不一致", 400);
-    const bytes = Number(body.bytes); if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 104857600) return error("BYTES_INVALID", "文件大小不合法", 400);
+    const bytes = Number(body.bytes); if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 20971520) return error("BYTES_INVALID", "视频不能超过 20 MB（jsDelivr 单文件分发上限）", 400);
     const thumbPath = typeof body.thumb_path === "string" && videoThumbPath.test(body.thumb_path) ? body.thumb_path : null;
     // 确认直传的文件确实存在（元数据请求，不含文件内容）
     const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);

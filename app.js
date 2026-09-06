@@ -239,7 +239,7 @@ async function saveSettings() {
   if (!Number.isFinite(heroBlur) || heroBlur < 0 || heroBlur > 40) { errorEl.textContent = "背景模糊度需在 0–40 px 之间"; errorEl.hidden = false; showSettingsTab("appearance"); saveButton.disabled = false; return; }
   if (acceleratorUrl && !/^https:\/\/[^/]+$/.test(acceleratorUrl)) { acceleratorError.textContent = "需要 https:// 开头的域名根地址"; acceleratorError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10000) { storageError.textContent = "每日上传上限需为 1–10000 的整数"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
-  if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 100) { storageError.textContent = "单张大小上限需为 1–100 MB"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
+  if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 20) { storageError.textContent = "单张大小上限需为 1–20 MB（jsDelivr 分发上限）"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
     const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi() }) });
@@ -329,6 +329,7 @@ function readAsBase64(blob) {
 
 // 视频直传 GitHub：EdgeOne 函数请求体上限 6MB，浏览器持短期安装令牌直接 PUT 到 GitHub API，函数只签发凭证与登记
 async function uploadVideo(file, done, total) {
+  if (file.size > 20 * 1048576) { $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：视频不能超过 20 MB（jsDelivr 单文件分发上限）</span></div>`); return false; }
   try {
     setStatus(`正在获取上传凭证（${done + 1}/${total}）……`);
     const session = await api("/api/upload/token", { method: "POST" });

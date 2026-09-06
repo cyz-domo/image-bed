@@ -6,7 +6,7 @@ import { validPartitionConfig } from "../_lib/partition.js";
 const EDITABLE = new Set(["hero_background_url", "hero_blur", "accelerator_base_url", "daily_upload_limit", "max_file_mb", "partition_config"]);
 function validHeroUrl(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && value.trim().length <= 2048; } catch { return false; } }
 function validAccelerator(value) { if (value === "") return true; try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password && !url.pathname.replace(/\/$/, "") && !url.search && !url.hash && value.trim().length <= 255; } catch { return false; } }
-const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 100], hero_blur: [0, 40] };
+const LIMITS = { daily_upload_limit: [1, 10000], max_file_mb: [1, 20], hero_blur: [0, 40] };
 const LABELS = { daily_upload_limit: "每日上限", max_file_mb: "大小上限", hero_blur: "背景模糊度" };
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
