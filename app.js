@@ -307,13 +307,74 @@ function makeVideoPoster(file) {
   });
 }
 
+// 直传成功与普通上传共用的结果渲染
+function appendUploadResult(data) {
+  const resultUrl = safeRemoteUrl(data.url);
+  if (!resultUrl) return false;
+  const result = document.createElement("div"); result.className = "result";
+  const preview = document.createElement(data.type === "video" ? "video" : "img");
+  if (data.type === "video") { preview.muted = true; preview.playsInline = true; if (data.thumb) preview.poster = data.thumb; }
+  preview.src = resultUrl; preview.alt = "已上传";
+  const info = document.createElement("div"); info.className = "result-info";
+  const urlText = document.createElement("span"); urlText.className = "url"; urlText.textContent = resultUrl;
+  const actions = document.createElement("div"); actions.className = "result-actions";
+  for (const [text, value, label] of [["🔗", resultUrl, "复制链接"], ["Ⓜ", data.markdown, "复制 Markdown"]]) { const button = document.createElement("button"); button.className = "icon-button"; button.dataset.copy = value || ""; button.title = label; button.ariaLabel = label; button.textContent = text; actions.append(button); }
+  info.append(urlText, actions); result.append(preview, info); $("upload-results").append(result);
+  $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
+  return true;
+}
+function readAsBase64(blob) {
+  return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(new Error("读取文件失败")); reader.readAsDataURL(blob); });
+}
+
+// 视频直传 GitHub：EdgeOne 函数请求体上限 6MB，浏览器持短期安装令牌直接 PUT 到 GitHub API，函数只签发凭证与登记
+async function uploadVideo(file, done, total) {
+  try {
+    setStatus(`正在获取上传凭证（${done + 1}/${total}）……`);
+    const session = await api("/api/upload/token", { method: "POST" });
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const name = `${stamp}-${Math.random().toString(36).slice(2, 10)}.mp4`;
+    const partition = state.currentUploadPartition || "";
+    const partitionPrefix = partition ? `${partition}/` : "";
+    const now = new Date(); const year = now.getUTCFullYear(); const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const path = `images/${partitionPrefix}${year}/${month}/${name}`;
+    const githubUrl = (p) => `https://api.github.com/repos/${session.owner}/${session.repo}/contents/${p.split("/").map(encodeURIComponent).join("/")}`;
+    const putGithub = (apiPath, content, message) => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest(); xhr.open("PUT", githubUrl(apiPath)); xhr.responseType = "json";
+      xhr.setRequestHeader("Accept", "application/vnd.github+json");
+      xhr.setRequestHeader("Authorization", `Bearer ${session.token}`);
+      xhr.setRequestHeader("X-GitHub-Api-Version", "2022-11-28");
+      xhr.upload.onprogress = (event) => { if (event.lengthComputable && content.length > 4 * 1048576) setStatus(`${file.name} 直传中 ${((event.loaded / 1048576) * 0.75).toFixed(1)}/${((event.total / 1048576) * 0.75).toFixed(1)} MB（${done + 1}/${total}）`); };
+      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `GitHub 直传失败 (${xhr.status})`));
+      xhr.onerror = () => reject(new Error("网络错误"));
+      xhr.send(JSON.stringify({ message, content, branch: "main" }));
+    });
+    setStatus(`${file.name} 正在直传 GitHub（${done + 1}/${total}）……`);
+    await putGithub(path, await readAsBase64(file), `chore: upload ${name}`);
+    let thumbPath = null;
+    const posterBlob = await makeVideoPoster(file);
+    if (posterBlob) {
+      setStatus(`正在上传视频封面（${done + 1}/${total}）……`);
+      const posterBase64 = await readAsBase64(posterBlob);
+      if (posterBase64) { thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${name}`; try { await putGithub(thumbPath, posterBase64, `chore: thumb ${name}`); } catch { thumbPath = null; } }
+    }
+    const data = await api("/api/upload/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, partition, bytes: file.size, thumb_path: thumbPath }) });
+    if (!appendUploadResult(data)) throw new Error("服务端返回了无效地址");
+    updateQuotaDisplay(session.daily_remaining, Number($("setting-daily-limit").value) || 100);
+    return true;
+  } catch (error) {
+    $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(file.name)}：${escapeHtml(error.message)}</span></div>`);
+    return false;
+  }
+}
+
 async function uploadOne(file, done, total) {
   setStatus(`正在处理 ${file.name}（${done + 1}/${total}）……`);
   const isVideo = file.type === "video/mp4";
-  const payload = isVideo ? file : await compressForUpload(file);
+  if (isVideo) return uploadVideo(file, done, total); // 视频绕过函数 6MB 请求体限制，直传 GitHub
+  const payload = await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
   const form = new FormData(); form.append("file", payload); form.append("partition", state.currentUploadPartition || "");
-  if (isVideo) { setStatus(`正在截取视频封面 ${file.name}……`); const poster = await makeVideoPoster(file); if (poster) form.append("poster", poster, "poster.webp"); }
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       // XHR 以获得真实上传进度（大 GIF 不压缩时尤其需要）
@@ -326,18 +387,7 @@ async function uploadOne(file, done, total) {
         xhr.onerror = () => reject(new Error("网络错误"));
         xhr.send(form);
       });
-      const resultUrl = safeRemoteUrl(data.url);
-      if (!resultUrl) throw new Error("服务端返回了无效图片地址");
-      const result = document.createElement("div"); result.className = "result";
-      const preview = document.createElement(data.type === "video" ? "video" : "img");
-      if (data.type === "video") { preview.muted = true; preview.playsInline = true; if (data.thumb) preview.poster = data.thumb; }
-      preview.src = resultUrl; preview.alt = "已上传";
-      const info = document.createElement("div"); info.className = "result-info";
-      const urlText = document.createElement("span"); urlText.className = "url"; urlText.textContent = resultUrl;
-      const actions = document.createElement("div"); actions.className = "result-actions";
-      for (const [text, value, label] of [["🔗", resultUrl, "复制链接"], ["Ⓜ", data.markdown, "复制 Markdown"]]) { const button = document.createElement("button"); button.className = "icon-button"; button.dataset.copy = value || ""; button.title = label; button.ariaLabel = label; button.textContent = text; actions.append(button); }
-      info.append(urlText, actions); result.append(preview, info); $("upload-results").append(result);
-      $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
+      if (!appendUploadResult(data)) throw new Error("服务端返回了无效图片地址");
       updateQuotaDisplay(data.daily_remaining, Number($("setting-daily-limit").value) || 100);
       return true;
     } catch (error) {
