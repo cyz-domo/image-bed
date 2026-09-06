@@ -8,9 +8,9 @@ import { validPartition } from "../_lib/partition.js";
 
 const defaultMaxBytes = 10485760;
 const defaultDailyLimit = 100;
-const randomName = (extension) => `${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
-// 分块 base64：块长为 3 的倍数可直接拼接，避免先生成完整二进制字符串再 btoa 的双倍内存峰值
-const base64 = (bytes) => { let result = ""; const chunk = 0x7ffe; for (let index = 0; index < bytes.length; index += chunk) result += btoa(String.fromCharCode(...bytes.subarray(index, Math.min(index + chunk, bytes.length)))); return result; };
+const randomName = (extension) => `${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}-${((globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`).slice(0, 8)}.${extension}`;
+// 优先 Node 原生 Buffer 编码（内存拷贝最少）；无 Buffer 环境退回分块 btoa（块长为 3 的倍数可直接拼接）
+const base64 = (bytes) => { if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64"); let result = ""; const chunk = 0x7ffe; for (let index = 0; index < bytes.length; index += chunk) result += btoa(String.fromCharCode(...bytes.subarray(index, Math.min(index + chunk, bytes.length)))); return result; };
 function magic(bytes, type) { if (type === "image/png") return bytes.slice(0, 8).every((value, i) => value === [137, 80, 78, 71, 13, 10, 26, 10][i]); if (type === "image/jpeg") return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255; if (type === "image/gif") return new TextDecoder().decode(bytes.slice(0, 6)) === "GIF89a" || new TextDecoder().decode(bytes.slice(0, 6)) === "GIF87a"; if (type === "image/webp") return new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP"; return false; }
 function sniff(bytes) { if (magic(bytes, "image/png")) return "image/png"; if (magic(bytes, "image/jpeg")) return "image/jpeg"; if (magic(bytes, "image/gif")) return "image/gif"; if (magic(bytes, "image/webp")) return "image/webp"; if (bytes.length > 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4"; return null; }
 
@@ -59,7 +59,7 @@ export async function onRequest({ request, env }) {
           if (magic(posterBytes, "image/webp") || magic(posterBytes, "image/png") || magic(posterBytes, "image/jpeg")) {
             const thumb = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
             thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-            await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(new Uint8Array(thumb)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
+            await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(thumb), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
           }
         }
       } catch { thumbPath = null; }
@@ -67,7 +67,7 @@ export async function onRequest({ request, env }) {
       try {
         const thumb = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
         thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-        await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(new Uint8Array(thumb)), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
+        await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(thumb), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
       } catch { thumbPath = null; }
     }
     await updateState((s) => { s.daily = { key: new Date().toISOString().slice(0, 10), count: reservation.used }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
