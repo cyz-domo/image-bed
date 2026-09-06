@@ -1,6 +1,6 @@
-import { ghApi } from "../_lib/github.js";
-import { readSession, isAdminSession } from "../_lib/auth.js";
-import { error, json } from "../_lib/http.js";
+import { ghApi } from "../../_lib/github.js";
+import { readSession, isAdminSession } from "../../_lib/auth.js";
+import { error, json } from "../../_lib/http.js";
 
 export async function onRequest({ request, env }) {
   let session = null;
