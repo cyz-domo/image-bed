@@ -45,7 +45,8 @@ export async function onRequest({ request, env }) {
     const results = [];
     const deletable = [];
     for (const path of paths) {
-      if (owners[path] !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
+      const owner = owners[path] || "";
+      if (owner && owner !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
       deletable.push(path);
     }
     // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突
