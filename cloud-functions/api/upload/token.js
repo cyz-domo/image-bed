@@ -16,7 +16,7 @@ export async function onRequest({ request, env }) {
     if (!state) { await updateState(() => {}, env); state = await loadState(env); }
     const limit = Number(state.settings?.daily_upload_limit || env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     // 配额在签发凭证时预占；直传中断最多占用一个当日名额
-    const reservation = await reserveDailyQuota(env, limit).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
+    const reservation = await reserveDailyQuota(env, limit, session.login).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
     if (!env.GITHUB_OWNER || !env.GITHUB_REPO) return error("REPO_NOT_CONFIGURED", "未配置目标仓库（GITHUB_OWNER / GITHUB_REPO）", 500);

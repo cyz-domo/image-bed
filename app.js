@@ -220,8 +220,8 @@ async function loadSettings() {
     const data = await api("/api/settings");
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
-    state.isAdmin = Array.isArray(s.allowed_users);
-    state.allowedUsers = state.isAdmin ? [...s.allowed_users] : [];
+    state.isAdmin = data.is_admin === true;
+    state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
     renderAllowedUsers();
     const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
     state.partitionConfig = s.partition_config || {}; renderPartitionConfig();

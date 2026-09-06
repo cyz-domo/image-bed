@@ -18,7 +18,7 @@ function kv(env) {
 function todayKey() { return new Date().toISOString().slice(0, 10); }
 function b64Encode(text) { const bytes = encoder.encode(text); let result = ""; const chunk = 0x8000; for (let index = 0; index < bytes.length; index += chunk) result += String.fromCharCode(...bytes.subarray(index, index + chunk)); return btoa(result); }
 
-export function freshState() { return { revoked: [], daily: {}, settings: {}, links: {} }; }
+export function freshState() { return { revoked: [], daily: {}, settings: {}, links: {}, owners: {} }; }
 
 /* ---------- GitHub 仓库状态文件（兜底存储） ---------- */
 const gh = { sha: null, data: null, loadedAt: 0 };
@@ -76,19 +76,27 @@ export async function updateState(mutator, env) {
   return run;
 }
 
-export async function reserveDailyQuota(env, limit) {
+// 每日配额按用户独立计数：ownerId 为登录名；limit 为每用户每日上限
+export async function reserveDailyQuota(env, limit, ownerId = "default") {
   const store = kv(env);
   const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
   if (!store || typeof increment !== "function") {
     let result;
-    await updateState((state) => { const key = todayKey(); if (state.daily.key !== key) state.daily = { key, count: 0 }; if (state.daily.count >= limit) { result = { allowed: false, used: state.daily.count, remaining: 0, key, fallback: true }; return; } state.daily.count += 1; result = { allowed: true, used: state.daily.count, remaining: limit - state.daily.count, key, fallback: true }; }, env);
+    await updateState((state) => { const key = todayKey(); const entry = state.daily?.[ownerId]; const count = entry?.key === key ? Number(entry.count || 0) : 0; if (count >= limit) { result = { allowed: false, used: count, remaining: 0, key, fallback: true }; return; } state.daily = { ...state.daily, [ownerId]: { key, count: count + 1 } }; result = { allowed: true, used: count + 1, remaining: limit - count - 1, key, fallback: true }; }, env);
     return result;
   }
-  const key = `daily_uploads:${todayKey()}`;
+  const key = `daily_uploads:${ownerId}:${todayKey()}`;
   const used = Number(await increment.call(store, key, 1));
   if (!Number.isFinite(used) || used < 1) throw Object.assign(new Error("每日配额计数返回值无效"), { code: "QUOTA_STORE_UNAVAILABLE" });
   if (used > limit) { try { await increment.call(store, key, -1); } catch {} return { allowed: false, used: used - 1, remaining: 0 }; }
   return { allowed: true, used, remaining: limit - used, key };
+}
+
+export async function readDailyUsed(env, ownerId = "default") {
+  const store = kv(env);
+  const key = `daily_uploads:${ownerId}:${todayKey()}`;
+  if (store) { try { const raw = await store.get(key); const used = Number(raw ?? 0); return Number.isFinite(used) ? used : 0; } catch { return 0; } }
+  const state = await loadState(env); const entry = state.daily?.[ownerId]; return entry?.key === todayKey() ? Number(entry.count || 0) : 0;
 }
 
 export async function releaseDailyQuota(env, reservation) {

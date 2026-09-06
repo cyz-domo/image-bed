@@ -1,6 +1,6 @@
-import { readSession, authUnavailable } from "../_lib/auth.js";
+import { readSession, authUnavailable, isAdminSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
+import { loadState, readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片与视频文件（含分区前缀），防止路径穿越或误删其他内容
@@ -40,15 +40,23 @@ export async function onRequest({ request, env }) {
     if (!paths.length || paths.length > MAX_BATCH) return error("PATH_INVALID", `一次最多删除 ${MAX_BATCH} 张`, 400);
     for (const path of paths) if (typeof path !== "string" || !imagePath.test(path)) return error("PATH_INVALID", `图片路径不合法: ${path}`, 400);
 
-    // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突
+    // 数据隔离：普通用户只能删除自己上传的文件，管理员可删除全部（未记录归属的历史文件仅管理员可删）
+    const owners = ((await loadState(env)).owners) || {};
+    const admin = isAdminSession(session, env);
     const results = [];
-    for (const path of paths) results.push(await deleteOne(env, path));
+    const deletable = [];
+    for (const path of paths) {
+      if (!admin && owners[path] !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
+      deletable.push(path);
+    }
+    // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突
+    for (const path of deletable) results.push(await deleteOne(env, path));
 
     const okPaths = results.filter((r) => r.ok).map((r) => r.path);
     if (okPaths.length) {
       try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
       invalidateHistoryCache();
-      try { await updateState((s) => { for (const path of okPaths) delete s.links?.[path]; }, env); } catch {}
+      try { await updateState((s) => { for (const path of okPaths) { delete s.links?.[path]; if (s.owners) delete s.owners[path]; } }, env); } catch {}
     }
     const failed = results.filter((r) => !r.ok);
     return json({ ok: failed.length === 0, deleted: okPaths, failed, failed_count: failed.length });

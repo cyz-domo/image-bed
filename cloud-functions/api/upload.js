@@ -41,7 +41,7 @@ export async function onRequest({ request, env }) {
     if (!keepOriginal && sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
     if (!keepOriginal && output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
     if (isVideo && output.length > 20971520) return error("FILE_TOO_LARGE", "视频不能超过 20 MB（jsDelivr 单文件分发上限）", 413);
-    const reservation = await reserveDailyQuota(env, limit).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
+    const reservation = await reserveDailyQuota(env, limit, session.login).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
     const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
@@ -70,10 +70,10 @@ export async function onRequest({ request, env }) {
         await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(thumb), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
       } catch { thumbPath = null; }
     }
-    await updateState((s) => { s.daily = { key: new Date().toISOString().slice(0, 10), count: reservation.used }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
+    await updateState((s) => { s.owners = { ...s.owners, [path]: session.login }; s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
     invalidateHistoryCache();
-    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, type: isVideo ? "video" : "image", url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
+    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, owner: session.login, type: isVideo ? "video" : "image", url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
     const url = imageUrl(env, path, state.settings);
     return json({ path, url, markdown: `![image](${url})`, type: isVideo ? "video" : "image", ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}), content_type: outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", daily_remaining: reservation.remaining });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }

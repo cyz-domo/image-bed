@@ -1,7 +1,7 @@
 // 直传登记：浏览器直传 GitHub 完成后，校验文件存在并写入历史缓存（视频与大体积图片均走此流程）
 import { readSession, authUnavailable } from "../../_lib/auth.js";
 import { ghApi } from "../../_lib/github.js";
-import { loadState, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../../_lib/state.js";
+import { loadState, updateState, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../../_lib/state.js";
 import { error, json } from "../../_lib/http.js";
 import { imageUrl } from "../../_lib/image-url.js";
 import { partitionOf, validPartition } from "../../_lib/partition.js";
@@ -29,8 +29,9 @@ export async function onRequest({ request, env }) {
     const head = await ghApi(env, `contents/${encodePath(path)}?ref=main`);
     if (!head.ok) return error("UPLOAD_NOT_FOUND", "未找到直传的文件", 400);
     const state = await loadState(env);
+    await updateState((s) => { s.owners = { ...s.owners, [path]: session.login }; }, env).catch(() => {});
     invalidateHistoryCache();
-    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, type: fileType, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
+    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, owner: session.login, type: fileType, url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
     const url = imageUrl(env, path, state.settings);
     return json({ path, url, markdown: `![${fileType}](${url})`, type: fileType, ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}), bytes });
   } catch (cause) { return error("FINALIZE_FAILED", cause?.message || "上传登记失败", 502); }

@@ -19,6 +19,7 @@ export async function onRequest({ request, env }) {
       let session = null; try { session = await readSession(request, env); } catch { session = null; }
       const settingsView = isAdminSession(session, env) ? { ...(state.settings || {}) } : Object.fromEntries(Object.entries(state.settings || {}).filter(([key]) => key !== "allowed_users"));
       return json({
+        is_admin: isAdminSession(session, env),
         settings: settingsView,
         defaults: { daily_upload_limit: Number(env.DAILY_UPLOAD_LIMIT || 100), max_file_mb: Number(env.MAX_FILE_SIZE || 10485760) / 1048576 },
       });
