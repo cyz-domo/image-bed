@@ -589,11 +589,16 @@ function pruneGalleryCache() {
     entries.forEach((entry, index) => { if (index >= GALLERY_CACHE_LIMIT || Date.now() - entry.savedAt >= GALLERY_CACHE_TTL) localStorage.removeItem(entry.key); });
   } catch {}
 }
-function writeGalleryCache(page, perPage, items, hasNext) { try { localStorage.setItem(galleryCacheKey(page, perPage), JSON.stringify({ savedAt: Date.now(), items, hasNext })); pruneGalleryCache(); } catch {} }
+function writeGalleryCache(page, perPage, items, hasNext, total) { try { localStorage.setItem(galleryCacheKey(page, perPage), JSON.stringify({ savedAt: Date.now(), items, hasNext, total: Number.isFinite(total) ? total : null })); pruneGalleryCache(); } catch {} }
+function totalPagesFor(perPage) { return state.totalItems ? Math.max(1, Math.ceil(state.totalItems / perPage)) : null; }
+function renderPager(perPage) {
+  const totalPages = totalPagesFor(perPage);
+  $("page-label").textContent = totalPages ? `第 ${state.page} / ${totalPages} 页` : `第 ${state.page} 页`;
+}
 function invalidateGalleryCache() { try { Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX) || key.startsWith("image-bed.gallery-page1.")).forEach((key) => localStorage.removeItem(key)); } catch {} galleryPrefetches.clear(); }
 async function prefetchGallery(page, perPage) {
   const key = galleryCacheKey(page, perPage); if (readGalleryCache(page, perPage) || galleryPrefetches.has(key)) return;
-  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
+  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next, data.total)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
   galleryPrefetches.set(key, task); await task;
 }
 
@@ -604,18 +609,19 @@ async function loadGallery() {
   $("gallery-empty").classList.add("hidden");
   $("select-mode").classList.add("hidden");
   const cached = readGalleryCache(state.page, perPage);
-  if (cached) { renderGallery(cached.items); state.hasNext = cached.hasNext; $("gallery-count").textContent = `本页 ${cached.items.length} 张`; $("previous").disabled = state.page === 1; $("next").disabled = !cached.hasNext; $("page-label").textContent = `第 ${state.page} 页`; $("select-mode").classList.toggle("hidden", !cached.items.length); }
+  if (cached) { renderGallery(cached.items); state.hasNext = cached.hasNext; state.totalItems = Number.isFinite(cached.total) ? cached.total : null; $("gallery-count").textContent = state.totalItems ? `共 ${state.totalItems} 张` : `本页 ${cached.items.length} 张`; $("previous").disabled = state.page === 1; $("next").disabled = !cached.hasNext; renderPager(perPage); $("select-mode").classList.toggle("hidden", !cached.items.length); }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
     const data = await api(`/api/history?page=${state.page}&per_page=${perPage}${partitionQueryParam()}`);
     if (requestId !== state.galleryRequest) return;
     const items = data.items;
     state.hasNext = data.has_next;
+    state.totalItems = Number.isFinite(data.total) ? data.total : null;
     if (Array.isArray(data.partitions)) { state.partitions = data.partitions; updatePartitionUi(); }
     $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
-    $("page-label").textContent = `第 ${state.page} 页`;
-    $("gallery-count").textContent = items.length ? `本页 ${items.length} 张` : "";
-    writeGalleryCache(state.page, perPage, items, data.has_next);
+    renderPager(perPage);
+    $("gallery-count").textContent = `共 ${state.totalItems ?? items.length} 张`;
+    writeGalleryCache(state.page, perPage, items, data.has_next, state.totalItems);
     if (data.has_next) { const nextPage = state.page + 1; const schedule = window.requestIdleCallback || ((callback) => setTimeout(callback, 150)); schedule(() => prefetchGallery(nextPage, perPage)); }
     renderGallery(items);
     $("select-mode").classList.toggle("hidden", !items.length);
@@ -628,7 +634,7 @@ async function loadGallery() {
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
   }
 }
-function setStatusQuiet() { $("gallery-count").textContent = `${(state.pageItems || []).length} 张（缓存）`; }
+function setStatusQuiet() { $("gallery-count").textContent = `共 ${state.totalItems ?? (state.pageItems || []).length} 张（缓存）`; }
 
 async function deleteSelected() {
   const paths = [...selection];
@@ -654,7 +660,7 @@ async function getGalleryPage(page, perPage) {
   if (cached) return { items: cached.items, has_next: cached.hasNext, cached: true };
   const key = galleryCacheKey(page, perPage);
   if (galleryPrefetches.has(key)) return galleryPrefetches.get(key);
-  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next); return data; }).finally(() => galleryPrefetches.delete(key));
+  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next, data.total); return data; }).finally(() => galleryPrefetches.delete(key));
   galleryPrefetches.set(key, task); return task;
 }
 async function navigateLightbox(direction) {

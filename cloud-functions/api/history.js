@@ -52,6 +52,6 @@ export async function onRequest({ request, env }) {
     if (partition === "default") items = items.filter((item) => !item.partition);
     else if (partition !== "all") items = items.filter((item) => item.partition === partition);
     const start = (page - 1) * perPage; const slice = items.slice(start, start + perPage);
-    return json({ items: slice, partitions, page, per_page: perPage, has_next: start + perPage < items.length }, 200, { "Cache-Control": "no-store" });
+    return json({ items: slice, partitions, total: items.length, page, per_page: perPage, has_next: start + perPage < items.length }, 200, { "Cache-Control": "no-store" });
   } catch { return error("HISTORY_FAILED", "历史记录暂时无法读取", 502); }
 }
