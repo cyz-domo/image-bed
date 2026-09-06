@@ -225,6 +225,9 @@ async function loadSettings() {
     renderAllowedUsers();
     const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
     const statsTab = $("tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
+    const appearanceTab = $("settings-tab-appearance"); if (appearanceTab) appearanceTab.classList.toggle("hidden", !state.isAdmin);
+    const storageTab = $("settings-tab-storage"); if (storageTab) storageTab.classList.toggle("hidden", !state.isAdmin);
+    if (!state.isAdmin) showSettingsTab("partitions");
     state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
     const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
     $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
