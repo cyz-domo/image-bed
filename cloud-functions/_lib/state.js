@@ -10,14 +10,21 @@ const STATE_PATH = ".state/state.json";
 
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 
+let kvWarned = false;
 function kv(env) {
   const store = runtimeEnv(env).IMAGE_KV;
   if (!store) {
-    console.warn("[KV] IMAGE_KV binding not found – falling back to GitHub state storage.");
+    if (!kvWarned) {
+      console.warn("[KV] IMAGE_KV binding not found – falling back to GitHub state storage.");
+      kvWarned = true;
+    }
     return null;
   }
   if (typeof store.get !== "function" || typeof store.put !== "function") {
-    console.warn("[KV] Unexpected store interface – falling back to GitHub state storage.");
+    if (!kvWarned) {
+      console.warn("[KV] Unexpected store interface – falling back to GitHub state storage.");
+      kvWarned = true;
+    }
     return null;
   }
   return store;
@@ -93,9 +100,13 @@ export async function reserveDailyQuota(env, limit, ownerId = "default") {
   const store = kv(env);
   const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
   if (!store || typeof increment !== "function") {
-    let result;
-    await updateState((state) => { const key = todayKey(); const entry = state.daily?.[ownerId]; const count = entry?.key === key ? Number(entry.count || 0) : 0; if (count >= limit) { result = { allowed: false, used: count, remaining: 0, key, fallback: true }; return; } state.daily = { ...state.daily, [ownerId]: { key, count: count + 1 } }; result = { allowed: true, used: count + 1, remaining: limit - count - 1, key, fallback: true }; }, env);
-    return result;
+    const key = todayKey();
+    const state = await loadState(env);
+    const entry = state.daily?.[ownerId];
+    const count = entry?.key === key ? Number(entry.count || 0) : 0;
+    if (count >= limit) return { allowed: false, used: count, remaining: 0, key, fallback: true };
+    state.daily = { ...state.daily, [ownerId]: { key, count: count + 1 } };
+    return { allowed: true, used: count + 1, remaining: limit - count - 1, key, fallback: true };
   }
   const key = `daily_uploads:${ownerId}:${todayKey()}`;
   const used = Number(await increment.call(store, key, 1));

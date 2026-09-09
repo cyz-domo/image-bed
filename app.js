@@ -606,13 +606,13 @@ async function uploadBatch(files) {
     else failedFiles.push(f);
   }
 
-  // 普通文件：按总大小不超过 4MB、一次最多 5 张打包分批提交（生成单个 Commit）
+  // 普通文件：按总大小不超过 2.5MB、一次最多 3 张打包分批提交（保障函数在 5 秒内完成，消除 524 超时风险）
   const batches = [];
   let currentBatch = [];
   let currentSize = 0;
 
   for (const item of normalPayloads) {
-    if (currentBatch.length >= 5 || (currentSize + item.payload.size > 4 * 1048576 && currentBatch.length > 0)) {
+    if (currentBatch.length >= 3 || (currentSize + item.payload.size > 2.5 * 1048576 && currentBatch.length > 0)) {
       batches.push(currentBatch);
       currentBatch = [];
       currentSize = 0;
@@ -657,9 +657,9 @@ async function uploadBatch(files) {
         }
         break;
       } catch (error) {
-        if ((error.message.includes("重试") || error.message.includes("503")) && attempt < 3) {
+        if ((error.message.includes("重试") || error.message.includes("503") || error.message.includes("524") || error.message.includes("502")) && attempt < 3) {
           setStatus(`第 ${bIdx + 1}/${batches.length} 批服务器繁忙，正在自动重试（第 ${attempt} 次）……`);
-          await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
           continue;
         }
         for (const item of batch) {

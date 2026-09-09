@@ -74,8 +74,8 @@ export async function onRequest({ request, env }) {
       let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : isVideo ? "mp4" : "webp";
       let outputType = sniffed;
 
-      if (!keepOriginal && sniffed !== "image/gif") {
-        output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer();
+      if (!keepOriginal && sniffed !== "image/gif" && sniffed !== "image/webp") {
+        output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 2 }).toBuffer();
         extension = "webp";
         outputType = "image/webp";
       }
@@ -84,7 +84,7 @@ export async function onRequest({ request, env }) {
 
       const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
 
-      // 缩略图
+      // 缩略图（单通道轻量压缩，effort: 2 降低函数执行耗时）
       let thumbBytes = null;
       let thumbPath = null;
       if (isVideo) {
@@ -93,14 +93,14 @@ export async function onRequest({ request, env }) {
           if (posterFile && typeof posterFile.arrayBuffer === "function") {
             const posterBytes = new Uint8Array(await posterFile.arrayBuffer());
             if (magic(posterBytes, "image/webp") || magic(posterBytes, "image/png") || magic(posterBytes, "image/jpeg")) {
-              thumbBytes = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+              thumbBytes = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 2 }).toBuffer();
               thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
             }
           }
         } catch { thumbBytes = null; thumbPath = null; }
       } else {
         try {
-          thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+          thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 65, effort: 2 }).toBuffer();
           thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
         } catch { thumbBytes = null; thumbPath = null; }
       }
@@ -108,36 +108,12 @@ export async function onRequest({ request, env }) {
       processedFiles.push({ path, thumbPath, isVideo, outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", output, thumbBytes });
     }
 
-    // 3. 将所有文件通过 Git Data API 打包写入
+    // 3. 将所有文件通过 Git Data API 打包写入（并发执行网络 I/O，消除超时风险）
     try {
-      // 3.1 上传所有文件的 Blob
-      for (const item of processedFiles) {
-        const imgBlobRes = await ghApi(env, "git/blobs", {
-          method: "POST",
-          body: JSON.stringify({ content: base64(item.output), encoding: "base64" })
-        });
-        if (!imgBlobRes.ok) throw new Error(`创建原图 Blob 失败 (${imgBlobRes.status})`);
-        const imgBlobSha = (await imgBlobRes.json()).sha;
-        treeEntries.push({ path: item.path, mode: "100644", type: "blob", sha: imgBlobSha });
-
-        if (item.thumbBytes && item.thumbPath) {
-          const thumbBlobRes = await ghApi(env, "git/blobs", {
-            method: "POST",
-            body: JSON.stringify({ content: base64(item.thumbBytes), encoding: "base64" })
-          });
-          if (thumbBlobRes.ok) {
-            const thumbBlobSha = (await thumbBlobRes.json()).sha;
-            treeEntries.push({ path: item.thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha });
-          } else {
-            item.thumbPath = null;
-          }
-        }
-      }
-
-      // 3.2 如果处于 fallback 模式（无 KV），直接在此处同步更新并生成新的 state.json 内容挂载到同一个 Tree 下，消除单独的 state commit！
+      // 3.1 准备 fallback 模式下的 state.json Blob 任务
       const store = (runtimeEnv(env).IMAGE_KV && typeof runtimeEnv(env).IMAGE_KV.get === "function") ? runtimeEnv(env).IMAGE_KV : null;
+      let stateBlobTask = null;
       if (!store) {
-        // 更新内存中的 state 并将修改后的 state.json 直接放进此 Git Tree
         const updatedState = { ...state };
         updatedState.owners = updatedState.owners || {};
         updatedState.daily = updatedState.daily || {};
@@ -147,29 +123,72 @@ export async function onRequest({ request, env }) {
         updatedState.daily[session.login] = { key: new Date().toISOString().slice(0, 10), count: reservation.used };
 
         const stateJsonStr = JSON.stringify(updatedState);
-        const stateBlobRes = await ghApi(env, "git/blobs", {
+        stateBlobTask = ghApi(env, "git/blobs", {
           method: "POST",
           body: JSON.stringify({ content: base64(new TextEncoder().encode(stateJsonStr)), encoding: "base64" })
+        }).then(async (res) => {
+          if (!res.ok) throw new Error(`创建 state.json Blob 失败 (${res.status})`);
+          const sha = (await res.json()).sha;
+          return { path: ".state/state.json", mode: "100644", type: "blob", sha };
         });
-        if (stateBlobRes.ok) {
-          const stateBlobSha = (await stateBlobRes.json()).sha;
-          treeEntries.push({ path: ".state/state.json", mode: "100644", type: "blob", sha: stateBlobSha });
+      }
+
+      // 3.2 准备获取 Parent Commit 和 base_tree 任务（与 Blob 并行发出，省去往返耗时）
+      const parentTask = (async () => {
+        const refRes = await ghApi(env, "git/ref/heads/main");
+        if (!refRes.ok) throw new Error(`获取分支引用失败 (${refRes.status})`);
+        const parentCommitSha = (await refRes.json()).object.sha;
+
+        const commitRes = await ghApi(env, `git/commits/${parentCommitSha}`);
+        if (!commitRes.ok) throw new Error(`获取 Parent Commit 失败 (${commitRes.status})`);
+        const baseTreeSha = (await commitRes.json()).tree.sha;
+        return { parentCommitSha, baseTreeSha };
+      })();
+
+      // 3.3 准备所有原图与缩略图 Blob 上传任务
+      const blobTasks = [];
+      for (const item of processedFiles) {
+        blobTasks.push((async () => {
+          const imgBlobRes = await ghApi(env, "git/blobs", {
+            method: "POST",
+            body: JSON.stringify({ content: base64(item.output), encoding: "base64" })
+          });
+          if (!imgBlobRes.ok) throw new Error(`创建原图 Blob 失败 (${imgBlobRes.status})`);
+          const imgBlobSha = (await imgBlobRes.json()).sha;
+          return { path: item.path, mode: "100644", type: "blob", sha: imgBlobSha };
+        })());
+
+        if (item.thumbBytes && item.thumbPath) {
+          blobTasks.push((async () => {
+            const thumbBlobRes = await ghApi(env, "git/blobs", {
+              method: "POST",
+              body: JSON.stringify({ content: base64(item.thumbBytes), encoding: "base64" })
+            });
+            if (thumbBlobRes.ok) {
+              const thumbBlobSha = (await thumbBlobRes.json()).sha;
+              return { path: item.thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha };
+            }
+            item.thumbPath = null;
+            return null;
+          })());
         }
       }
 
-      // 3.3 获取 main 分支引用的 Parent Commit 和 base_tree
-      const refRes = await ghApi(env, "git/ref/heads/main");
-      if (!refRes.ok) throw new Error(`获取分支引用失败 (${refRes.status})`);
-      const parentCommitSha = (await refRes.json()).object.sha;
+      // 并发执行：Parent Commit 获取 + 所有原图 Blob + 所有缩略图 Blob + state.json Blob
+      const [parentInfo, ...resolvedEntries] = await Promise.all([
+        parentTask,
+        ...blobTasks,
+        ...(stateBlobTask ? [stateBlobTask] : [])
+      ]);
 
-      const commitRes = await ghApi(env, `git/commits/${parentCommitSha}`);
-      if (!commitRes.ok) throw new Error(`获取 Parent Commit 失败 (${commitRes.status})`);
-      const baseTreeSha = (await commitRes.json()).tree.sha;
+      for (const entry of resolvedEntries) {
+        if (entry) treeEntries.push(entry);
+      }
 
-      // 3.4 创建包含图片、缩略图和 state.json 的 Git Tree
+      // 3.4 创建包含全部文件及 state.json 的新 Git Tree
       const treeRes = await ghApi(env, "git/trees", {
         method: "POST",
-        body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
+        body: JSON.stringify({ base_tree: parentInfo.baseTreeSha, tree: treeEntries })
       });
       if (!treeRes.ok) throw new Error(`创建 Tree 失败 (${treeRes.status})`);
       const newTreeSha = (await treeRes.json()).sha;
@@ -178,7 +197,7 @@ export async function onRequest({ request, env }) {
       const commitMsg = processedFiles.length === 1 ? `chore: upload ${processedFiles[0].path.split("/").pop()}` : `chore: upload ${processedFiles.length} images`;
       const newCommitRes = await ghApi(env, "git/commits", {
         method: "POST",
-        body: JSON.stringify({ message: commitMsg, tree: newTreeSha, parents: [parentCommitSha] })
+        body: JSON.stringify({ message: commitMsg, tree: newTreeSha, parents: [parentInfo.parentCommitSha] })
       });
       if (!newCommitRes.ok) throw new Error(`创建 Commit 失败 (${newCommitRes.status})`);
       const newCommitSha = (await newCommitRes.json()).sha;
