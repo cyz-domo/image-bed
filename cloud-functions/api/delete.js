@@ -8,25 +8,57 @@ const imagePath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/[\w一-鿿.-]+\.(?:png|jpe
 const encodePath = (path) => encodeURIComponent(path).replace(/%2F/g, "/");
 const MAX_BATCH = 20;
 
-// 删除单张：串行执行；409 说明分支 sha 已变化（并发提交竞争），重取 sha 重试一次
-async function deleteOne(env, path) {
-  // 图片与其缩略图一起删（不存在则静默跳过）
-  const targets = [path, `.thumbnails/${path.slice("images/".length)}`];
-  for (const target of targets) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const head = await ghApi(env, `contents/${encodePath(target)}?ref=main`);
-        if (head.status === 404) break; // 缩略图可能不存在，正常
-        if (!head.ok) return { path, ok: false, message: `读取失败 (${head.status})` };
-        const sha = (await head.json()).sha;
-        const del = await ghApi(env, `contents/${encodePath(target)}`, { method: "DELETE", body: JSON.stringify({ message: `chore: delete ${target}`, sha, branch: "main" }) });
-        if (del.ok || del.status === 404) break;
-        if (del.status !== 409) return { path, ok: false, message: `删除失败 (${del.status})` };
-        // 409：sha 过期，循环重取
-      } catch (cause) { return { path, ok: false, message: cause.message || "删除失败" }; }
-    }
+// 批量删除：使用 GitHub Git Data API 构造单个 Commit 一次性删除所有文件（含缩略图）
+// 每次批量请求仅需 4 次 GitHub API 调用，避免 API 配额消耗和 secondary rate limit
+async function batchDelete(env, paths) {
+  if (!paths.length) return { ok: true, deleted: [] };
+  
+  // 收集原图和对应存在的缩略图路径
+  const treeEntries = [];
+  for (const path of paths) {
+    treeEntries.push({ path, mode: "100644", type: "blob", sha: null });
+    treeEntries.push({ path: `.thumbnails/${path.slice("images/".length)}`, mode: "100644", type: "blob", sha: null });
   }
-  return { path, ok: true };
+
+  try {
+    // 1. 获取 main 分支最新 commit sha
+    const refRes = await ghApi(env, "git/ref/heads/main");
+    if (!refRes.ok) return { ok: false, message: `获取分支引用失败 (${refRes.status})` };
+    const parentCommitSha = (await refRes.json()).object.sha;
+
+    // 2. 获取基准 commit 对象，拿到 base_tree sha
+    const commitRes = await ghApi(env, `git/commits/${parentCommitSha}`);
+    if (!commitRes.ok) return { ok: false, message: `获取 Commit 失败 (${commitRes.status})` };
+    const baseTreeSha = (await commitRes.json()).tree.sha;
+
+    // 3. 创建包含删除条目的新 tree（sha: null 表示删除）
+    const treeRes = await ghApi(env, "git/trees", {
+      method: "POST",
+      body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
+    });
+    if (!treeRes.ok) return { ok: false, message: `创建 Tree 失败 (${treeRes.status})` };
+    const newTreeSha = (await treeRes.json()).sha;
+
+    // 4. 创建新 Commit
+    const message = paths.length === 1 ? `chore: delete ${paths[0]}` : `chore: delete ${paths.length} images`;
+    const newCommitRes = await ghApi(env, "git/commits", {
+      method: "POST",
+      body: JSON.stringify({ message, tree: newTreeSha, parents: [parentCommitSha] })
+    });
+    if (!newCommitRes.ok) return { ok: false, message: `创建 Commit 失败 (${newCommitRes.status})` };
+    const newCommitSha = (await newCommitRes.json()).sha;
+
+    // 5. 更新 main 分支 ref
+    const updateRefRes = await ghApi(env, "git/refs/heads/main", {
+      method: "PATCH",
+      body: JSON.stringify({ sha: newCommitSha, force: false })
+    });
+    if (!updateRefRes.ok) return { ok: false, message: `更新分支引用失败 (${updateRefRes.status})` };
+
+    return { ok: true, deleted: paths };
+  } catch (cause) {
+    return { ok: false, message: cause.message || "批量删除失败" };
+  }
 }
 
 export async function onRequest({ request, env }) {
@@ -49,10 +81,23 @@ export async function onRequest({ request, env }) {
       if (owner && owner !== session.login) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
       deletable.push(path);
     }
-    // GitHub 分支引用串行更新，必须逐张删，并发会产生 409 sha 冲突
-    for (const path of deletable) results.push(await deleteOne(env, path));
+    // 使用 Git Data API 一次性批量删除
+    let batchRes = { ok: true, deleted: [] };
+    if (deletable.length > 0) {
+      batchRes = await batchDelete(env, deletable);
+    }
 
-    const okPaths = results.filter((r) => r.ok).map((r) => r.path);
+    const okPaths = batchRes.ok ? deletable : [];
+    if (!batchRes.ok) {
+      for (const path of deletable) {
+        results.push({ path, ok: false, message: batchRes.message || "批量删除失败" });
+      }
+    } else {
+      for (const path of deletable) {
+        results.push({ path, ok: true });
+      }
+    }
+
     if (okPaths.length) {
       try { const cached = await readHistoryCache(env); if (cached) await writeHistoryCache(env, cached.items.filter((item) => !okPaths.includes(item.path))); } catch {}
       invalidateHistoryCache();

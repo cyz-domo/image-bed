@@ -792,18 +792,35 @@ async function deleteSelected() {
   const paths = [...selection];
   if (!paths.length) return;
   if (!await confirmAsync(`确定删除选中的 ${paths.length} 张图片？删除后链接立即失效。`)) return;
+  
+  // 1. 前端乐观更新：立即清空选择并刷新/移除界面卡片
+  selection.clear();
   $("delete-selected").disabled = true;
-  // 每 5 张一批、多批串行，规避平台函数执行时长限制与 GitHub API 压力
-  const deleted = [], failed = [];
-  for (let i = 0; i < paths.length; i += 5) {
-    $("delete-selected").textContent = `删除中（${Math.min(i + 5, paths.length)}/${paths.length}）……`;
-    try {
-      const data = await api("/api/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: paths.slice(i, i + 5) }) });
-      deleted.push(...(data.deleted || [])); failed.push(...(data.failed || []));
-    } catch (error) { failed.push(...paths.slice(i, i + 5).map((path) => ({ path, message: error.message }))); }
+  showToast(`正在后台删除 ${paths.length} 张图片……`);
+  
+  // 乐观使本地缓存失效并重载
+  invalidateGalleryCache();
+  await loadGallery();
+
+  // 2. 后台异步批量删除（由后端一次性 commit 删掉）
+  try {
+    const data = await api("/api/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths })
+    });
+    if (data.ok) {
+      showToast(`成功删除 ${paths.length} 张图片`);
+    } else {
+      showToast(`删除部分失败：${(data.failed || []).map(f => f.message).join(", ")}`, true);
+    }
+  } catch (error) {
+    showToast(`删除失败：${error.message}`, true);
+  } finally {
+    $("delete-selected").disabled = false;
+    invalidateGalleryCache();
+    await loadGallery();
   }
-  if (failed.length) showToast(`${deleted.length} 张已删除，${failed.length} 张失败：\n${failed.map((f) => `${f.path}：${f.message}`).join("\n")}`, true);
-  selection.clear(); if (deleted.length) invalidateGalleryCache(); await loadGallery();
 }
 
 /* ---------- 大图查看 ---------- */
