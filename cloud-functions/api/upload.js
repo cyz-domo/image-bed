@@ -27,73 +27,126 @@ export async function onRequest({ request, env }) {
     const maxBytes = Math.round(Number(state.settings?.max_file_mb || env.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
 
     let form; try { form = await request.formData(); } catch (cause) { if (String(cause.message).includes("already been read")) return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503); throw cause; }
-    const file = form.get("file"); if (!file || typeof file.arrayBuffer !== "function") return error("FILE_REQUIRED", "请选择图片", 400); if (file.size > maxBytes) return error("FILE_TOO_LARGE", `文件不能超过 ${Math.round(maxBytes / 1048576)} MB，可在设置中调整上限`, 413);
-    // 分区：images/<分区名>/年/月/文件；为空时为默认分区（须在压缩策略前解析）
+    
+    // 获取支持多文件数组：form.getAll("files") 或 form.getAll("file")
+    const rawFiles = [...form.getAll("files"), ...form.getAll("file")].filter(f => f && typeof f.arrayBuffer === "function");
+    if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
+
     const partition = String(form.get("partition") || "").trim();
     if (partition && !validPartition(partition)) return error("PARTITION_INVALID", "分区名限 1–32 位，支持中文、字母、数字、连字符，且不能是纯数字年份", 400);
     const partitionPrefix = partition ? `${partition}/` : "";
-    const source = new Uint8Array(await file.arrayBuffer()); const sniffed = sniff(source); if (!sniffed) return error("FILE_SIGNATURE_INVALID", "文件内容不是有效图片或 MP4 视频", 400);
-    const isVideo = sniffed === "video/mp4";
-    // 分区压缩策略：配置 compress:false 的分区保留原图（仅嗅探格式、不转码）；视频始终保留原样；缩略图始终生成
     const partitionConfig = state.settings?.partition_config || {};
-    const keepOriginal = isVideo || partitionConfig[partition || "default"]?.compress === false;
-    let output = source; let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : isVideo ? "mp4" : "webp"; let outputType = sniffed;
-    if (!keepOriginal && sniffed !== "image/gif") { output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer(); extension = "webp"; outputType = "image/webp"; }
-    if (!keepOriginal && output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", "压缩后图片仍超过 5 MB，请换一张图片", 413);
-    if (isVideo && output.length > 20971520) return error("FILE_TOO_LARGE", "视频不能超过 20 MB（jsDelivr 单文件分发上限）", 413);
+    const year = new Date().getUTCFullYear();
+    const month = String(new Date().getUTCMonth() + 1).padStart(2, "0");
+
+    // 1. 预占每日配额（尝试为这批文件申请配额）
     const reservation = await reserveDailyQuota(env, limit, session.login).catch((cause) => { if (cause?.code === "QUOTA_STORE_UNAVAILABLE") return null; throw cause; });
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
-    const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
-    
-    // 生成缩略图字节数据
-    let thumbBytes = null;
-    let thumbPath = null;
-    if (isVideo) {
-      try {
-        const posterFile = form.get("poster");
-        if (posterFile && typeof posterFile.arrayBuffer === "function") {
-          const posterBytes = new Uint8Array(await posterFile.arrayBuffer());
-          if (magic(posterBytes, "image/webp") || magic(posterBytes, "image/png") || magic(posterBytes, "image/jpeg")) {
-            thumbBytes = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
-            thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
+
+    // 2. 依次在内存中压缩与生成各文件的原图和缩略图 Blob
+    const processedFiles = [];
+    const treeEntries = [];
+
+    for (let idx = 0; idx < rawFiles.length; idx += 1) {
+      const file = rawFiles[idx];
+      if (file.size > maxBytes) return error("FILE_TOO_LARGE", `文件 [${file.name}] 不能超过 ${Math.round(maxBytes / 1048576)} MB`, 413);
+
+      const source = new Uint8Array(await file.arrayBuffer());
+      const sniffed = sniff(source);
+      if (!sniffed) return error("FILE_SIGNATURE_INVALID", `文件 [${file.name}] 内容不是有效图片或 MP4 视频`, 400);
+
+      const isVideo = sniffed === "video/mp4";
+      const keepOriginal = isVideo || partitionConfig[partition || "default"]?.compress === false;
+
+      let output = source;
+      let extension = sniffed === "image/png" ? "png" : sniffed === "image/jpeg" ? "jpg" : sniffed === "image/gif" ? "gif" : isVideo ? "mp4" : "webp";
+      let outputType = sniffed;
+
+      if (!keepOriginal && sniffed !== "image/gif") {
+        output = await sharp(source).resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toBuffer();
+        extension = "webp";
+        outputType = "image/webp";
+      }
+      if (!keepOriginal && output.length > 5242880) return error("COMPRESSED_FILE_TOO_LARGE", `图片 [${file.name}] 压缩后仍超过 5 MB`, 413);
+      if (isVideo && output.length > 20971520) return error("FILE_TOO_LARGE", `视频 [${file.name}] 不能超过 20 MB`, 413);
+
+      const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
+
+      // 缩略图
+      let thumbBytes = null;
+      let thumbPath = null;
+      if (isVideo) {
+        try {
+          const posterFile = form.getAll("poster")[idx] || form.get("poster");
+          if (posterFile && typeof posterFile.arrayBuffer === "function") {
+            const posterBytes = new Uint8Array(await posterFile.arrayBuffer());
+            if (magic(posterBytes, "image/webp") || magic(posterBytes, "image/png") || magic(posterBytes, "image/jpeg")) {
+              thumbBytes = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+              thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
+            }
           }
-        }
-      } catch { thumbBytes = null; thumbPath = null; }
-    } else {
-      try {
-        thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
-        thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-      } catch { thumbBytes = null; thumbPath = null; }
+        } catch { thumbBytes = null; thumbPath = null; }
+      } else {
+        try {
+          thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+          thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
+        } catch { thumbBytes = null; thumbPath = null; }
+      }
+
+      processedFiles.push({ path, thumbPath, isVideo, outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", output, thumbBytes });
     }
 
-    // 使用 Git Data API 一次性把原图和缩略图写入单个 Commit
+    // 3. 将所有文件通过 Git Data API 打包写入
     try {
-      // 1. 创建原图 Blob
-      const imgBlobRes = await ghApi(env, "git/blobs", {
-        method: "POST",
-        body: JSON.stringify({ content: base64(output), encoding: "base64" })
-      });
-      if (!imgBlobRes.ok) throw new Error(`创建原图 Blob 失败 (${imgBlobRes.status})`);
-      const imgBlobSha = (await imgBlobRes.json()).sha;
-
-      const treeEntries = [{ path, mode: "100644", type: "blob", sha: imgBlobSha }];
-
-      // 2. 创建缩略图 Blob（若存在）
-      if (thumbBytes && thumbPath) {
-        const thumbBlobRes = await ghApi(env, "git/blobs", {
+      // 3.1 上传所有文件的 Blob
+      for (const item of processedFiles) {
+        const imgBlobRes = await ghApi(env, "git/blobs", {
           method: "POST",
-          body: JSON.stringify({ content: base64(thumbBytes), encoding: "base64" })
+          body: JSON.stringify({ content: base64(item.output), encoding: "base64" })
         });
-        if (thumbBlobRes.ok) {
-          const thumbBlobSha = (await thumbBlobRes.json()).sha;
-          treeEntries.push({ path: thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha });
-        } else {
-          thumbPath = null; // 缩略图创建失败降级，不阻断原图上传
+        if (!imgBlobRes.ok) throw new Error(`创建原图 Blob 失败 (${imgBlobRes.status})`);
+        const imgBlobSha = (await imgBlobRes.json()).sha;
+        treeEntries.push({ path: item.path, mode: "100644", type: "blob", sha: imgBlobSha });
+
+        if (item.thumbBytes && item.thumbPath) {
+          const thumbBlobRes = await ghApi(env, "git/blobs", {
+            method: "POST",
+            body: JSON.stringify({ content: base64(item.thumbBytes), encoding: "base64" })
+          });
+          if (thumbBlobRes.ok) {
+            const thumbBlobSha = (await thumbBlobRes.json()).sha;
+            treeEntries.push({ path: item.thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha });
+          } else {
+            item.thumbPath = null;
+          }
         }
       }
 
-      // 3. 获取 main 最新 commit 与 base_tree
+      // 3.2 如果处于 fallback 模式（无 KV），直接在此处同步更新并生成新的 state.json 内容挂载到同一个 Tree 下，消除单独的 state commit！
+      const store = (runtimeEnv(env).IMAGE_KV && typeof runtimeEnv(env).IMAGE_KV.get === "function") ? runtimeEnv(env).IMAGE_KV : null;
+      if (!store) {
+        // 更新内存中的 state 并将修改后的 state.json 直接放进此 Git Tree
+        const updatedState = { ...state };
+        updatedState.owners = updatedState.owners || {};
+        updatedState.daily = updatedState.daily || {};
+        for (const item of processedFiles) {
+          updatedState.owners[item.path] = session.login;
+        }
+        updatedState.daily[session.login] = { key: new Date().toISOString().slice(0, 10), count: reservation.used };
+
+        const stateJsonStr = JSON.stringify(updatedState);
+        const stateBlobRes = await ghApi(env, "git/blobs", {
+          method: "POST",
+          body: JSON.stringify({ content: base64(new TextEncoder().encode(stateJsonStr)), encoding: "base64" })
+        });
+        if (stateBlobRes.ok) {
+          const stateBlobSha = (await stateBlobRes.json()).sha;
+          treeEntries.push({ path: ".state/state.json", mode: "100644", type: "blob", sha: stateBlobSha });
+        }
+      }
+
+      // 3.3 获取 main 分支引用的 Parent Commit 和 base_tree
       const refRes = await ghApi(env, "git/ref/heads/main");
       if (!refRes.ok) throw new Error(`获取分支引用失败 (${refRes.status})`);
       const parentCommitSha = (await refRes.json()).object.sha;
@@ -102,7 +155,7 @@ export async function onRequest({ request, env }) {
       if (!commitRes.ok) throw new Error(`获取 Parent Commit 失败 (${commitRes.status})`);
       const baseTreeSha = (await commitRes.json()).tree.sha;
 
-      // 4. 创建 Tree
+      // 3.4 创建包含图片、缩略图和 state.json 的 Git Tree
       const treeRes = await ghApi(env, "git/trees", {
         method: "POST",
         body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
@@ -110,15 +163,16 @@ export async function onRequest({ request, env }) {
       if (!treeRes.ok) throw new Error(`创建 Tree 失败 (${treeRes.status})`);
       const newTreeSha = (await treeRes.json()).sha;
 
-      // 5. 创建 Commit
+      // 3.5 创建唯一 Commit
+      const commitMsg = processedFiles.length === 1 ? `chore: upload ${processedFiles[0].path.split("/").pop()}` : `chore: upload ${processedFiles.length} images`;
       const newCommitRes = await ghApi(env, "git/commits", {
         method: "POST",
-        body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, tree: newTreeSha, parents: [parentCommitSha] })
+        body: JSON.stringify({ message: commitMsg, tree: newTreeSha, parents: [parentCommitSha] })
       });
       if (!newCommitRes.ok) throw new Error(`创建 Commit 失败 (${newCommitRes.status})`);
       const newCommitSha = (await newCommitRes.json()).sha;
 
-      // 6. 更新 ref
+      // 3.6 更新 ref 指针
       const updateRefRes = await ghApi(env, "git/refs/heads/main", {
         method: "PATCH",
         body: JSON.stringify({ sha: newCommitSha, force: false })
@@ -128,11 +182,36 @@ export async function onRequest({ request, env }) {
       await releaseDailyQuota(env, reservation).catch(() => {});
       throw cause;
     }
-    await updateState((s) => { s.owners = { ...s.owners, [path]: session.login }; s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
-    // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
+
+    // 4. KV 存在时同步 KV 状态；无 KV 时状态已合并在 Git Tree 提交中
+    await updateState((s) => {
+      s.owners = s.owners || {};
+      for (const item of processedFiles) s.owners[item.path] = session.login;
+      s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } };
+    }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
+
+    // 5. 刷新历史缓存并构造结果返回
     invalidateHistoryCache();
-    await (async () => { try { const cached = await readHistoryCache(env); if (!cached || Date.now() - cached.savedAt >= 600000 || !Array.isArray(cached.items)) return; const item = { path, partition, owner: session.login, type: isVideo ? "video" : "image", url: imageUrl(env, path, state.settings), ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}) }; await writeHistoryCache(env, [item, ...cached.items.filter((entry) => entry.path !== path)]); } catch {} })();
-    const url = imageUrl(env, path, state.settings);
-    return json({ path, url, markdown: `![image](${url})`, type: isVideo ? "video" : "image", ...(thumbPath ? { thumb: imageUrl(env, thumbPath, state.settings) } : {}), content_type: outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", daily_remaining: reservation.remaining });
+    const results = processedFiles.map((item) => {
+      const url = imageUrl(env, item.path, state.settings);
+      const thumbUrl = item.thumbPath ? imageUrl(env, item.thumbPath, state.settings) : null;
+      return {
+        path: item.path,
+        url,
+        markdown: `![image](${url})`,
+        type: item.isVideo ? "video" : "image",
+        ...(thumbUrl ? { thumb: thumbUrl } : {}),
+        content_type: item.outputType,
+        bytes: item.bytes,
+        compressed: item.compressed,
+        daily_remaining: reservation.remaining
+      };
+    });
+
+    // 兼容单文件和多文件返回格式
+    if (rawFiles.length === 1) {
+      return json(results[0]);
+    }
+    return json({ ok: true, items: results, count: results.length });
   } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
 }

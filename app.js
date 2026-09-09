@@ -567,6 +567,97 @@ async function uploadOne(file, done, total) {
   }
 }
 
+async function uploadBatch(files) {
+  if (!files.length) return { ok: 0, failedFiles: [] };
+  
+  // 准备文件：视频与超大文件走直传；普通图片进行压缩
+  const normalPayloads = [];
+  const directFiles = [];
+
+  for (const file of files) {
+    const isVideo = file.type === "video/mp4";
+    if (isVideo) {
+      directFiles.push(file);
+    } else {
+      const payload = await compressForUpload(file);
+      if (payload.size > 5 * 1048576) {
+        directFiles.push(payload);
+      } else {
+        normalPayloads.push({ original: file, payload });
+      }
+    }
+  }
+
+  let okCount = 0;
+  const failedFiles = [];
+
+  // 直传文件单独逐个上传
+  for (let i = 0; i < directFiles.length; i += 1) {
+    const f = directFiles[i];
+    const res = await uploadDirect(f, i, directFiles.length + normalPayloads.length);
+    if (res) okCount += 1;
+    else failedFiles.push(f);
+  }
+
+  // 普通文件：按总大小不超过 4MB、一次最多 5 张打包分批提交（生成单个 Commit）
+  const batches = [];
+  let currentBatch = [];
+  let currentSize = 0;
+
+  for (const item of normalPayloads) {
+    if (currentBatch.length >= 5 || (currentSize + item.payload.size > 4 * 1048576 && currentBatch.length > 0)) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentSize = 0;
+    }
+    currentBatch.push(item);
+    currentSize += item.payload.size;
+  }
+  if (currentBatch.length > 0) batches.push(currentBatch);
+
+  for (let bIdx = 0; bIdx < batches.length; bIdx += 1) {
+    const batch = batches[bIdx];
+    setStatus(`正在上传第 ${bIdx + 1}/${batches.length} 批图片（共 ${batch.length} 张）……`);
+    
+    const form = new FormData();
+    form.append("partition", state.currentUploadPartition || "");
+    for (const item of batch) {
+      form.append("files", item.payload, item.payload.name);
+    }
+
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/upload");
+        xhr.responseType = "json";
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) setStatus(`第 ${bIdx + 1}/${batches.length} 批上传中 ${(event.loaded / 1048576).toFixed(1)}/${(event.total / 1048576).toFixed(1)} MB……`);
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `请求失败 (${xhr.status})`));
+        xhr.onerror = () => reject(new Error("网络错误"));
+        xhr.send(form);
+      });
+
+      const items = Array.isArray(data.items) ? data.items : [data];
+      let batchSuccess = 0;
+      for (const resItem of items) {
+        if (appendUploadResult(resItem)) batchSuccess += 1;
+      }
+      okCount += batchSuccess;
+      if (items.length > 0 && items[0].daily_remaining !== undefined) {
+        updateQuotaDisplay(items[0].daily_remaining, Number($("setting-daily-limit").value) || 100);
+      }
+    } catch (error) {
+      for (const item of batch) {
+        failedFiles.push(item.original);
+        $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(item.original.name)}：${escapeHtml(error.message)}</span></div>`);
+      }
+    }
+  }
+
+  return { ok: okCount, failedFiles };
+}
+
 async function upload(files) {
   const list = [...files];
   if (!list.length || state.uploading) return;
@@ -580,23 +671,13 @@ async function upload(files) {
   progress.setAttribute("aria-valuenow", "0");
   state.uploading = true;
   $("dropzone").classList.add("uploading");
-  let done = 0, ok = 0;
-  const failedFiles = [];
+
   try {
-    for (const file of list) {
-      const success = await uploadOne(file, done, list.length);
-      done += 1;
-      if (success) {
-        ok += 1;
-      } else {
-        failedFiles.push(file);
-      }
-      const percent = Math.round((done / list.length) * 100);
-      bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
-      if (done < list.length) setStatus(`上传中 ${done}/${list.length}（${percent}%）`);
-    }
+    const { ok, failedFiles } = await uploadBatch(list);
+    bar.style.width = "100%";
+    progress.setAttribute("aria-valuenow", "100");
     state.uploadPartitionChoice = state.currentUploadPartition || "";
-    setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
+    setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${failedFiles.length} 张`, ok !== list.length);
     
     // 更新底部工具栏：如果有失败的文件，添加“重新上传失败图片”按钮
     const footer = $("results-footer");
