@@ -581,23 +581,59 @@ async function upload(files) {
   state.uploading = true;
   $("dropzone").classList.add("uploading");
   let done = 0, ok = 0;
+  const failedFiles = [];
   try {
     for (const file of list) {
       const success = await uploadOne(file, done, list.length);
-      done += 1; if (success) ok += 1;
+      done += 1;
+      if (success) {
+        ok += 1;
+      } else {
+        failedFiles.push(file);
+      }
       const percent = Math.round((done / list.length) * 100);
       bar.style.width = `${percent}%`; progress.setAttribute("aria-valuenow", String(percent));
       if (done < list.length) setStatus(`上传中 ${done}/${list.length}（${percent}%）`);
     }
     state.uploadPartitionChoice = state.currentUploadPartition || "";
     setStatus(ok === list.length ? `全部完成（${ok} 张）` : `完成 ${ok} 张，失败 ${list.length - ok} 张`, ok !== list.length);
-    $("results-footer").classList.toggle("hidden", !ok);
+    
+    // 更新底部工具栏：如果有失败的文件，添加“重新上传失败图片”按钮
+    const footer = $("results-footer");
+    footer.classList.remove("hidden");
+    let retryBtn = $("results-retry");
+    if (failedFiles.length > 0) {
+      if (!retryBtn) {
+        retryBtn = document.createElement("button");
+        retryBtn.id = "results-retry";
+        retryBtn.type = "button";
+        retryBtn.className = "ghost-button small danger";
+        retryBtn.style.marginRight = "auto";
+        footer.insertBefore(retryBtn, $("results-clear"));
+      }
+      retryBtn.hidden = false;
+      retryBtn.textContent = `重新上传失败项 (${failedFiles.length})`;
+      retryBtn.onclick = () => {
+        retryBtn.hidden = true;
+        upload(failedFiles);
+      };
+    } else if (retryBtn) {
+      retryBtn.hidden = true;
+    }
+    if (!ok && failedFiles.length === 0) footer.classList.add("hidden");
+
     if (ok) invalidateGalleryCache();
     if (state.tab === "gallery" && ok) loadGallery();
   } catch (error) { setStatus(`上传异常：${error.message}`, true); }
   finally { progress.classList.add("hidden"); state.uploading = false; $("dropzone").classList.remove("uploading"); }
 }
-$("results-clear").onclick = () => { $("upload-results").innerHTML = ""; $("results-footer").classList.add("hidden"); setStatus(""); };
+$("results-clear").onclick = () => {
+  $("upload-results").innerHTML = "";
+  $("results-footer").classList.add("hidden");
+  const retryBtn = $("results-retry");
+  if (retryBtn) retryBtn.hidden = true;
+  setStatus("");
+};
 // 恢复上次每页设置（旧值可能是 3 的倍数，吸附到 4 的倍数）
 try {
   const saved = Number(localStorage.getItem("image-bed.per-page"));
