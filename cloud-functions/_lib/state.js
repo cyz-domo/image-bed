@@ -12,7 +12,15 @@ const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env 
 
 function kv(env) {
   const store = runtimeEnv(env).IMAGE_KV;
-  return store && typeof store.get === "function" && typeof store.put === "function" ? store : null;
+  if (!store) {
+    console.warn("[KV] IMAGE_KV binding not found – falling back to GitHub state storage.");
+    return null;
+  }
+  if (typeof store.get !== "function" || typeof store.put !== "function") {
+    console.warn("[KV] Unexpected store interface – falling back to GitHub state storage.");
+    return null;
+  }
+  return store;
 }
 
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -63,7 +71,11 @@ export async function loadState(env) {
 // read -> mutate -> save 持实例内锁；KV 最终一致（其他节点最多延迟 60 秒），单人图床可接受
 let writing = null;
 export async function updateState(mutator, env) {
-  while (writing) await writing;
+  // 防止写锁长时间阻塞导致函数超时
+  await Promise.race([
+    (async () => { while (writing) await writing; })(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("stateLock timeout")), 5000))
+  ]);
   const run = (async () => {
     const state = await loadState(env);
     const result = mutator(state);
