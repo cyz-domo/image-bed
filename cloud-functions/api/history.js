@@ -37,6 +37,7 @@ export async function onRequest({ request, env }) {
   const perPage = Number.isFinite(rawPerPage) && rawPerPage >= 4 && rawPerPage <= 120 ? rawPerPage : 12;
   // 分区筛选：all=全部（默认），default=默认分区，其余为分区名精确匹配
   const partition = (url.searchParams.get("partition") || "all").slice(0, 64);
+  const scope = (url.searchParams.get("scope") || "mine").slice(0, 16);
   try {
     const currentState = await loadState(config);
     const settings = currentState.settings || {};
@@ -48,13 +49,21 @@ export async function onRequest({ request, env }) {
     }
     const normalizeItems = (list) => list.map((item) => ({ ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
     items = normalizeItems(items);
-    // 数据隔离：图片按上传者归属。管理员可见全部（包括历史未记录 owner 的旧图片）；普通用户仅可见明确属于自己的图片
+    // 视图范围与数据隔离：
+    // 普通用户：始终只能看明确属于自己的图片
+    // 管理员：
+    //   - scope="mine"（默认）：只看自己上传的图片 + 历史未标记 owner 的旧图片（存量老图）
+    //   - scope="all"：查看全库图片（包含其他用户上传的图片，用于内容审核与维护）
     const owners = currentState.owners || {};
     const isAdmin = isAdminSession(session, env);
 
     items = items.map((item) => ({ ...item, owner: owners[item.path] || "" }));
-    if (!isAdmin) {
-      items = items.filter((item) => item.owner && item.owner === session.login);
+    if (!isAdmin || scope !== "all") {
+      if (isAdmin) {
+        items = items.filter((item) => !item.owner || item.owner === session.login);
+      } else {
+        items = items.filter((item) => item.owner && item.owner === session.login);
+      }
     }
     const partitions = [...new Set(items.map((item) => item.partition || "").filter(Boolean))];
     if (partition === "default") items = items.filter((item) => !item.partition);

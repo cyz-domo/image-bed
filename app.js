@@ -1,4 +1,5 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", partitions: [], partitionConfig: {}, isAdmin: false, allowedUsers: [] };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", galleryScope: "mine", partitions: [], partitionConfig: {}, isAdmin: false, allowedUsers: [] };
+try { const savedScope = localStorage.getItem("image-bed.gallery-scope"); if (savedScope === "all" || savedScope === "mine") state.galleryScope = savedScope; } catch {}
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
@@ -143,6 +144,7 @@ async function heroCacheDelete(url) {
 
 /* ---------- 玻璃下拉组件 ---------- */
 const SORT_OPTIONS = [["newest", "最新优先"], ["oldest", "最早优先"], ["name", "按名称"]];
+const SCOPE_OPTIONS = [["mine", "我的图片"], ["all", "全库图片"]];
 function dropdownValue(root) { return root?.querySelector(".dropdown-trigger")?.dataset.value ?? ""; }
 function renderDropdown(root, optionList, currentValue) {
   const trigger = root?.querySelector(".dropdown-trigger"), menu = root?.querySelector(".dropdown-menu");
@@ -221,6 +223,11 @@ async function loadSettings() {
     const s = data.settings || {};
     $("setting-hero-url").value = s.hero_background_url || "";
     state.isAdmin = data.is_admin === true;
+    const scopeDropdown = $("gallery-scope");
+    if (scopeDropdown) {
+      scopeDropdown.classList.toggle("hidden", !state.isAdmin);
+      renderDropdown(scopeDropdown, SCOPE_OPTIONS, state.galleryScope || "mine");
+    }
     state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
     renderAllowedUsers();
     const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
@@ -796,11 +803,19 @@ function renderGallery(items) {
   if (selectMode()) $("gallery").querySelectorAll(".shot.selectable").forEach((node) => node.onclick = () => { const path = node.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
   updateSelectionUi();
 }
+$("gallery-scope") && wireDropdown($("gallery-scope"), (value) => {
+  state.galleryScope = value || "mine";
+  try { localStorage.setItem("image-bed.gallery-scope", state.galleryScope); } catch {}
+  state.page = 1;
+  invalidateGalleryCache();
+  loadGallery();
+});
 $("gallery-sort") && wireDropdown($("gallery-sort"), () => renderGallery(state.pageItems || []));
 $("gallery-partition") && wireDropdown($("gallery-partition"), (value) => { state.galleryPartition = value || "all"; try { localStorage.setItem("image-bed.gallery-partition", state.galleryPartition); } catch {} state.page = 1; loadGallery(); });
 $("upload-partition-dd") && wireDropdown($("upload-partition-dd"), () => syncNewPartitionInput());
 $("upload-partition-new").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); commitNewPartition(); } };
 $("upload-partition-new").onblur = () => commitNewPartition();
+renderDropdown($("gallery-scope"), SCOPE_OPTIONS, state.galleryScope || "mine");
 renderDropdown($("gallery-sort"), SORT_OPTIONS, "newest");
 updatePartitionUi(); // 启动时完整渲染所有分区控件（上传下拉、筛选、设置列表），不再依赖图片库接口返回
 // 每页数量：自定义输入（4 的倍数，4-120，与桌面端 4 列瀑布流对齐），失焦或回车生效
@@ -815,8 +830,13 @@ function onPerPageChange() {
 $("per-page-input").onchange = onPerPageChange;
 $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
 
-function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${state.galleryPartition || "all"}.${perPage}.${page}`; }
-function partitionQueryParam() { const partition = state.galleryPartition || "all"; return partition === "all" ? "" : `&partition=${encodeURIComponent(partition)}`; }
+function galleryCacheKey(page, perPage) { return `${GALLERY_CACHE_PREFIX}${encodeURIComponent(state.login || "unknown")}.${state.galleryScope || "mine"}.${state.galleryPartition || "all"}.${perPage}.${page}`; }
+function partitionQueryParam() {
+  const partition = state.galleryPartition || "all";
+  const partParam = partition === "all" ? "" : `&partition=${encodeURIComponent(partition)}`;
+  const scopeParam = state.isAdmin && state.galleryScope === "all" ? "&scope=all" : "";
+  return `${partParam}${scopeParam}`;
+}
 function renderPartitionConfig() {
   const list = $("partition-config-list");
   if (!list) return;
