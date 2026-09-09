@@ -36,6 +36,7 @@ export async function onRequest({ request, env }) {
   if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
 
   try {
+    const store = (runtimeEnv(env).IMAGE_KV && typeof runtimeEnv(env).IMAGE_KV.get === "function") ? runtimeEnv(env).IMAGE_KV : null;
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
     if (!state) { await updateState(() => {}, env); state = await loadState(env); }
@@ -111,7 +112,6 @@ export async function onRequest({ request, env }) {
     // 3. 将所有文件通过 Git Data API 打包写入（并发执行网络 I/O，消除超时风险）
     try {
       // 3.1 准备 fallback 模式下的 state.json Blob 任务
-      const store = (runtimeEnv(env).IMAGE_KV && typeof runtimeEnv(env).IMAGE_KV.get === "function") ? runtimeEnv(env).IMAGE_KV : null;
       let stateBlobTask = null;
       if (!store) {
         const updatedState = { ...state };
@@ -244,6 +244,8 @@ export async function onRequest({ request, env }) {
     if (rawFiles.length === 1) {
       return json(results[0]);
     }
-    return json({ ok: true, items: results, count: results.length });
-  } catch (cause) { return error("UPLOAD_FAILED", cause.message || "上传失败", 502); }
+  } catch (cause) {
+    console.error("[Upload] 上传发生异常:", cause);
+    return error("UPLOAD_FAILED", cause?.message || "上传失败", 502);
+  }
 }
