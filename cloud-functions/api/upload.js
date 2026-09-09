@@ -6,6 +6,7 @@ import { error, json } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
 import { validPartition } from "../_lib/partition.js";
 
+const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 const defaultMaxBytes = 10485760;
 const defaultDailyLimit = 100;
 const randomName = (extension) => `${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}-${((globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`).slice(0, 8)}.${extension}`;
@@ -18,6 +19,22 @@ export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
   let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
   if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+
+  // 尽早读取请求体，避免在等待外部网络调用时请求流超时或被提前消费
+  let form;
+  try {
+    form = await request.formData();
+  } catch (cause) {
+    if (String(cause?.message || cause).includes("already been read")) {
+      return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503);
+    }
+    throw cause;
+  }
+
+  // 获取支持多文件数组：form.getAll("files") 或 form.getAll("file")
+  const rawFiles = [...form.getAll("files"), ...form.getAll("file")].filter(f => f && typeof f.arrayBuffer === "function");
+  if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
+
   try {
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
@@ -25,12 +42,6 @@ export async function onRequest({ request, env }) {
     // 配额必须由支持原子递增的 KV 预占；不支持时拒绝上传，避免并发绕过上限
     const limit = Number(state.settings?.daily_upload_limit || env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     const maxBytes = Math.round(Number(state.settings?.max_file_mb || env.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
-
-    let form; try { form = await request.formData(); } catch (cause) { if (String(cause.message).includes("already been read")) return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503); throw cause; }
-    
-    // 获取支持多文件数组：form.getAll("files") 或 form.getAll("file")
-    const rawFiles = [...form.getAll("files"), ...form.getAll("file")].filter(f => f && typeof f.arrayBuffer === "function");
-    if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
 
     const partition = String(form.get("partition") || "").trim();
     if (partition && !validPartition(partition)) return error("PARTITION_INVALID", "分区名限 1–32 位，支持中文、字母、数字、连字符，且不能是纯数字年份", 400);
@@ -184,11 +195,13 @@ export async function onRequest({ request, env }) {
     }
 
     // 4. KV 存在时同步 KV 状态；无 KV 时状态已合并在 Git Tree 提交中
-    await updateState((s) => {
-      s.owners = s.owners || {};
-      for (const item of processedFiles) s.owners[item.path] = session.login;
-      s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } };
-    }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
+    if (store) {
+      await updateState((s) => {
+        s.owners = s.owners || {};
+        for (const item of processedFiles) s.owners[item.path] = session.login;
+        s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } };
+      }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
+    }
 
     // 5. 刷新历史缓存并构造结果返回
     invalidateHistoryCache();

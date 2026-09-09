@@ -618,39 +618,48 @@ async function uploadBatch(files) {
   for (let bIdx = 0; bIdx < batches.length; bIdx += 1) {
     const batch = batches[bIdx];
     setStatus(`正在上传第 ${bIdx + 1}/${batches.length} 批图片（共 ${batch.length} 张）……`);
-    
-    const form = new FormData();
-    form.append("partition", state.currentUploadPartition || "");
-    for (const item of batch) {
-      form.append("files", item.payload, item.payload.name);
-    }
 
-    try {
-      const data = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/upload");
-        xhr.responseType = "json";
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) setStatus(`第 ${bIdx + 1}/${batches.length} 批上传中 ${(event.loaded / 1048576).toFixed(1)}/${(event.total / 1048576).toFixed(1)} MB……`);
-        };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `请求失败 (${xhr.status})`));
-        xhr.onerror = () => reject(new Error("网络错误"));
-        xhr.send(form);
-      });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const form = new FormData();
+        form.append("partition", state.currentUploadPartition || "");
+        for (const item of batch) {
+          form.append("files", item.payload, item.payload.name);
+        }
 
-      const items = Array.isArray(data.items) ? data.items : [data];
-      let batchSuccess = 0;
-      for (const resItem of items) {
-        if (appendUploadResult(resItem)) batchSuccess += 1;
-      }
-      okCount += batchSuccess;
-      if (items.length > 0 && items[0].daily_remaining !== undefined) {
-        updateQuotaDisplay(items[0].daily_remaining, Number($("setting-daily-limit").value) || 100);
-      }
-    } catch (error) {
-      for (const item of batch) {
-        failedFiles.push(item.original);
-        $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(item.original.name)}：${escapeHtml(error.message)}</span></div>`);
+        const data = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/upload");
+          xhr.responseType = "json";
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) setStatus(`第 ${bIdx + 1}/${batches.length} 批上传中 ${(event.loaded / 1048576).toFixed(1)}/${(event.total / 1048576).toFixed(1)} MB……`);
+          };
+          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `请求失败 (${xhr.status})`));
+          xhr.onerror = () => reject(new Error("网络错误"));
+          xhr.send(form);
+        });
+
+        const items = Array.isArray(data.items) ? data.items : [data];
+        let batchSuccess = 0;
+        for (const resItem of items) {
+          if (appendUploadResult(resItem)) batchSuccess += 1;
+        }
+        okCount += batchSuccess;
+        if (items.length > 0 && items[0].daily_remaining !== undefined) {
+          updateQuotaDisplay(items[0].daily_remaining, Number($("setting-daily-limit").value) || 100);
+        }
+        break;
+      } catch (error) {
+        if ((error.message.includes("重试") || error.message.includes("503")) && attempt < 3) {
+          setStatus(`第 ${bIdx + 1}/${batches.length} 批服务器繁忙，正在自动重试（第 ${attempt} 次）……`);
+          await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+          continue;
+        }
+        for (const item of batch) {
+          failedFiles.push(item.original);
+          $("upload-results").insertAdjacentHTML("beforeend", `<div class="result failed"><span class="url error">${escapeHtml(item.original.name)}：${escapeHtml(error.message)}</span></div>`);
+        }
+        break;
       }
     }
   }

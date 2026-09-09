@@ -32,9 +32,9 @@ export function freshState() { return { revoked: [], daily: {}, settings: {}, li
 const gh = { sha: null, data: null, loadedAt: 0 };
 const GH_TTL_MS = 15000;
 
-async function ghLoad() {
+async function ghLoad(env) {
   if (gh.data && Date.now() - gh.loadedAt < GH_TTL_MS) return gh.data;
-  const response = await ghApi(null, `contents/${STATE_PATH}?ref=main`);
+  const response = await ghApi(env, `contents/${STATE_PATH}?ref=main`);
   if (response.status === 404) { gh.data = freshState(); gh.sha = null; }
   else {
     if (!response.ok) throw new Error(`状态文件读取失败 (${response.status})`);
@@ -46,9 +46,9 @@ async function ghLoad() {
   return gh.data;
 }
 
-async function ghSave(state) {
+async function ghSave(state, env) {
   const content = b64Encode(JSON.stringify(state));
-  const response = await ghApi(null, `contents/${STATE_PATH}`, { method: "PUT", body: JSON.stringify({ message: "chore: update state", content, branch: "main", ...(gh.sha ? { sha: gh.sha } : {}) }) });
+  const response = await ghApi(env, `contents/${STATE_PATH}`, { method: "PUT", body: JSON.stringify({ message: "chore: update state", content, branch: "main", ...(gh.sha ? { sha: gh.sha } : {}) }) });
   if (!response.ok) { gh.loadedAt = 0; throw new Error(`状态文件写入失败 (${response.status})`); }
   gh.sha = (await response.json()).content.sha;
   gh.loadedAt = Date.now();
@@ -65,7 +65,7 @@ export async function loadState(env) {
     kvMemo.loadedAt = Date.now();
     return kvMemo.data;
   }
-  return ghLoad();
+  return ghLoad(env);
 }
 
 // read -> mutate -> save 持实例内锁；KV 最终一致（其他节点最多延迟 60 秒），单人图床可接受
@@ -81,7 +81,7 @@ export async function updateState(mutator, env) {
     const result = mutator(state);
     const store = kv(env);
     if (store) { await store.put(STATE_KEY, JSON.stringify(state)); kvMemo.data = state; kvMemo.loadedAt = Date.now(); }
-    else await ghSave(state);
+    else await ghSave(state, env);
     return result;
   })();
   writing = run.finally(() => { writing = null; });

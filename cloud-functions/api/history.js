@@ -1,5 +1,5 @@
 import { ghApi } from "../_lib/github.js";
-import { readSession } from "../_lib/auth.js";
+import { readSession, isAdminSession } from "../_lib/auth.js";
 import { readHistoryCache, writeHistoryCache, loadState, readMemoryHistory, writeMemoryHistory } from "../_lib/state.js";
 import { json, error } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
@@ -48,10 +48,14 @@ export async function onRequest({ request, env }) {
     }
     const normalizeItems = (list) => list.map((item) => ({ ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
     items = normalizeItems(items);
-    // 数据隔离：图片按上传者归属，普通用户仅可见自己上传的，管理员可见全部
+    // 数据隔离：图片按上传者归属。管理员可见全部（包括历史未记录 owner 的旧图片）；普通用户仅可见明确属于自己的图片
     const owners = currentState.owners || {};
+    const isAdmin = isAdminSession(session, env);
+
     items = items.map((item) => ({ ...item, owner: owners[item.path] || "" }));
-    items = items.filter((item) => !item.owner || item.owner === session.login);
+    if (!isAdmin) {
+      items = items.filter((item) => item.owner && item.owner === session.login);
+    }
     const partitions = [...new Set(items.map((item) => item.partition || "").filter(Boolean))];
     if (partition === "default") items = items.filter((item) => !item.partition);
     else if (partition !== "all") items = items.filter((item) => item.partition === partition);
