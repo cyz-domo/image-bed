@@ -45,11 +45,9 @@ export async function onRequest({ request, env }) {
     if (!reservation) return error("QUOTA_STORE_UNAVAILABLE", "每日配额服务暂不可用，请稍后重试", 503);
     if (!reservation.allowed) return error("DAILY_LIMIT_REACHED", `今日上传已达上限（${limit} 张）`, 429);
     const year = new Date().getUTCFullYear(); const month = String(new Date().getUTCMonth() + 1).padStart(2, "0"); const path = `images/${partitionPrefix}${year}/${month}/${randomName(extension)}`;
-    const contentBase64 = base64(output);
-    try {
-      await ghApi(env, `contents/${path}`, { method: "PUT", body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, content: contentBase64, branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(`GitHub 写入失败 (${response.status})`); });
-    } catch (cause) { await releaseDailyQuota(env, reservation).catch(() => {}); throw cause; }
-    // 缩略图：图片由服务端生成长边 320 的 WebP；视频无法服务端转码，使用客户端截帧上传的 poster，均存 .thumbnails/ 同构路径，失败不阻断上传
+    
+    // 生成缩略图字节数据
+    let thumbBytes = null;
     let thumbPath = null;
     if (isVideo) {
       try {
@@ -57,18 +55,78 @@ export async function onRequest({ request, env }) {
         if (posterFile && typeof posterFile.arrayBuffer === "function") {
           const posterBytes = new Uint8Array(await posterFile.arrayBuffer());
           if (magic(posterBytes, "image/webp") || magic(posterBytes, "image/png") || magic(posterBytes, "image/jpeg")) {
-            const thumb = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+            thumbBytes = await sharp(posterBytes).resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
             thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-            await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(thumb), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
           }
         }
-      } catch { thumbPath = null; }
+      } catch { thumbBytes = null; thumbPath = null; }
     } else {
       try {
-        const thumb = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
+        thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer();
         thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-        await ghApi(env, `contents/${thumbPath}`, { method: "PUT", body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content: base64(thumb), branch: "main" }) }).then((response) => { if (!response.ok) throw new Error(String(response.status)); });
-      } catch { thumbPath = null; }
+      } catch { thumbBytes = null; thumbPath = null; }
+    }
+
+    // 使用 Git Data API 一次性把原图和缩略图写入单个 Commit
+    try {
+      // 1. 创建原图 Blob
+      const imgBlobRes = await ghApi(env, "git/blobs", {
+        method: "POST",
+        body: JSON.stringify({ content: base64(output), encoding: "base64" })
+      });
+      if (!imgBlobRes.ok) throw new Error(`创建原图 Blob 失败 (${imgBlobRes.status})`);
+      const imgBlobSha = (await imgBlobRes.json()).sha;
+
+      const treeEntries = [{ path, mode: "100644", type: "blob", sha: imgBlobSha }];
+
+      // 2. 创建缩略图 Blob（若存在）
+      if (thumbBytes && thumbPath) {
+        const thumbBlobRes = await ghApi(env, "git/blobs", {
+          method: "POST",
+          body: JSON.stringify({ content: base64(thumbBytes), encoding: "base64" })
+        });
+        if (thumbBlobRes.ok) {
+          const thumbBlobSha = (await thumbBlobRes.json()).sha;
+          treeEntries.push({ path: thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha });
+        } else {
+          thumbPath = null; // 缩略图创建失败降级，不阻断原图上传
+        }
+      }
+
+      // 3. 获取 main 最新 commit 与 base_tree
+      const refRes = await ghApi(env, "git/ref/heads/main");
+      if (!refRes.ok) throw new Error(`获取分支引用失败 (${refRes.status})`);
+      const parentCommitSha = (await refRes.json()).object.sha;
+
+      const commitRes = await ghApi(env, `git/commits/${parentCommitSha}`);
+      if (!commitRes.ok) throw new Error(`获取 Parent Commit 失败 (${commitRes.status})`);
+      const baseTreeSha = (await commitRes.json()).tree.sha;
+
+      // 4. 创建 Tree
+      const treeRes = await ghApi(env, "git/trees", {
+        method: "POST",
+        body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
+      });
+      if (!treeRes.ok) throw new Error(`创建 Tree 失败 (${treeRes.status})`);
+      const newTreeSha = (await treeRes.json()).sha;
+
+      // 5. 创建 Commit
+      const newCommitRes = await ghApi(env, "git/commits", {
+        method: "POST",
+        body: JSON.stringify({ message: `chore: upload ${path.split("/").pop()}`, tree: newTreeSha, parents: [parentCommitSha] })
+      });
+      if (!newCommitRes.ok) throw new Error(`创建 Commit 失败 (${newCommitRes.status})`);
+      const newCommitSha = (await newCommitRes.json()).sha;
+
+      // 6. 更新 ref
+      const updateRefRes = await ghApi(env, "git/refs/heads/main", {
+        method: "PATCH",
+        body: JSON.stringify({ sha: newCommitSha, force: false })
+      });
+      if (!updateRefRes.ok) throw new Error(`更新分支引用失败 (${updateRefRes.status})`);
+    } catch (cause) {
+      await releaseDailyQuota(env, reservation).catch(() => {});
+      throw cause;
     }
     await updateState((s) => { s.owners = { ...s.owners, [path]: session.login }; s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } }; }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
     // 刷新历史缓存：把新图插到列表头，失败则忽略（下次全量拉取）
