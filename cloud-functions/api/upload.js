@@ -17,32 +17,34 @@ function sniff(bytes) { if (magic(bytes, "image/png")) return "image/png"; if (m
 
 export async function onRequest({ request, env }) {
   if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 POST", 405);
-  let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
-  if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
-
-  // 尽早读取请求体，避免在等待外部网络调用时请求流超时或被提前消费
-  let form;
   try {
-    form = await request.formData();
-  } catch (cause) {
-    if (String(cause?.message || cause).includes("already been read")) {
-      return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503);
+    let session; try { session = await readSession(request, env); } catch (cause) { if (authUnavailable(cause)) return error("AUTH_STORE_UNAVAILABLE", "会话服务暂不可用，请稍后重试", 503); throw cause; }
+    if (!session) return error("UNAUTHENTICATED", "请先使用 GitHub 登录", 401);
+
+    // 尽早读取请求体，避免在等待外部网络调用时请求流超时或被提前消费
+    let form;
+    try {
+      form = await request.formData();
+    } catch (cause) {
+      console.error("[Upload] request.formData() 解析异常:", cause);
+      if (String(cause?.message || cause).includes("already been read")) {
+        return error("UPLOAD_RETRY", "服务器繁忙，正在自动重试", 503);
+      }
+      return error("BAD_REQUEST", `请求解析失败: ${cause?.message || "请重试"}`, 400);
     }
-    throw cause;
-  }
 
-  // 获取支持多文件数组：form.getAll("files") 或 form.getAll("file")
-  const rawFiles = [...form.getAll("files"), ...form.getAll("file")].filter(f => f && typeof f.arrayBuffer === "function");
-  if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
+    // 获取支持多文件数组：form.getAll("files") 或 form.getAll("file")
+    const rawFiles = [...form.getAll("files"), ...form.getAll("file")].filter(f => f && typeof f.arrayBuffer === "function");
+    if (!rawFiles.length) return error("FILE_REQUIRED", "请选择图片", 400);
 
-  try {
-    const store = (runtimeEnv(env).IMAGE_KV && typeof runtimeEnv(env).IMAGE_KV.get === "function") ? runtimeEnv(env).IMAGE_KV : null;
+    const config = runtimeEnv(env);
+    const store = (config.IMAGE_KV && typeof config.IMAGE_KV.get === "function") ? config.IMAGE_KV : null;
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
     if (!state) { await updateState(() => {}, env); state = await loadState(env); }
     // 配额必须由支持原子递增的 KV 预占；不支持时拒绝上传，避免并发绕过上限
-    const limit = Number(state.settings?.daily_upload_limit || env.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
-    const maxBytes = Math.round(Number(state.settings?.max_file_mb || env.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
+    const limit = Number(state.settings?.daily_upload_limit || config.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
+    const maxBytes = Math.round(Number(state.settings?.max_file_mb || config.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
 
     const partition = String(form.get("partition") || "").trim();
     if (partition && !validPartition(partition)) return error("PARTITION_INVALID", "分区名限 1–32 位，支持中文、字母、数字、连字符，且不能是纯数字年份", 400);
@@ -244,6 +246,7 @@ export async function onRequest({ request, env }) {
     if (rawFiles.length === 1) {
       return json(results[0]);
     }
+    return json({ items: results });
   } catch (cause) {
     console.error("[Upload] 上传发生异常:", cause);
     return error("UPLOAD_FAILED", cause?.message || "上传失败", 502);

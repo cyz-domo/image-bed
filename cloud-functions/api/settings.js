@@ -11,8 +11,11 @@ const LABELS = { daily_upload_limit: "每日上限", max_file_mb: "大小上限"
 
 function toNumber(value, [min, max]) { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; }
 
+const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
+
 export async function onRequest({ request, env }) {
   try {
+    const config = runtimeEnv(env);
     const state = await loadState(env);
     if (request.method === "GET") {
       // allowed_users 仅对管理员可见，避免公开接口泄露用户名单
@@ -21,7 +24,7 @@ export async function onRequest({ request, env }) {
       return json({
         is_admin: isAdminSession(session, env),
         settings: settingsView,
-        defaults: { daily_upload_limit: Number(env.DAILY_UPLOAD_LIMIT || 100), max_file_mb: Number(env.MAX_FILE_SIZE || 10485760) / 1048576 },
+        defaults: { daily_upload_limit: Number(config.DAILY_UPLOAD_LIMIT || 100), max_file_mb: Number(config.MAX_FILE_SIZE || 10485760) / 1048576 },
       });
     }
     if (request.method !== "POST") return error("METHOD_NOT_ALLOWED", "只支持 GET 和 POST", 405);
@@ -46,7 +49,7 @@ export async function onRequest({ request, env }) {
     });
     await updateState((s) => normalizedEntries.forEach(([key, value]) => setSetting(s, key, value)), env);
     invalidateHistoryCache();
-    try { const store = env.IMAGE_KV; if (store?.delete) await store.delete("history_cache"); } catch {}
+    try { const store = config.IMAGE_KV; if (store?.delete) await store.delete("history_cache"); } catch {}
     return json({ ok: true, settings: { ...(await loadState(env)).settings } });
   } catch (cause) { return error("SETTINGS_FAILED", cause?.message || "设置读取失败", 502); }
 }

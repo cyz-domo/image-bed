@@ -1,4 +1,27 @@
 import { publicOrigin } from "../../_lib/auth.js";
 import { error, cookie } from "../../_lib/http.js";
 const b64 = (bytes) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-export async function onRequest({ request, env }) { let redirect; try { redirect = `${publicOrigin(request, env)}/api/auth/callback`; } catch (cause) { return error("CONFIGURATION_ERROR", cause.message, 503); } const state = b64(crypto.getRandomValues(new Uint8Array(24))); const authorize = new URL("https://github.com/login/oauth/authorize"); authorize.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID); authorize.searchParams.set("redirect_uri", redirect); authorize.searchParams.set("scope", "read:user"); authorize.searchParams.set("state", state); return new Response(null, { status: 302, headers: { Location: authorize, "Cache-Control": "no-store", "Set-Cookie": cookie("oauth_state", state, { maxAge: 600, path: "/", httpOnly: true, secure: true, sameSite: "Lax" }) } }); }
+const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
+export async function onRequest({ request, env }) {
+  const config = runtimeEnv(env);
+  let redirect;
+  try {
+    redirect = `${publicOrigin(request, env)}/api/auth/callback`;
+  } catch (cause) {
+    return error("CONFIGURATION_ERROR", cause.message, 503);
+  }
+  const state = b64(crypto.getRandomValues(new Uint8Array(24)));
+  const authorize = new URL("https://github.com/login/oauth/authorize");
+  authorize.searchParams.set("client_id", config.GITHUB_APP_CLIENT_ID);
+  authorize.searchParams.set("redirect_uri", redirect);
+  authorize.searchParams.set("scope", "read:user");
+  authorize.searchParams.set("state", state);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: authorize,
+      "Cache-Control": "no-store",
+      "Set-Cookie": cookie("oauth_state", state, { maxAge: 600, path: "/", httpOnly: true, secure: true, sameSite: "Lax" })
+    }
+  });
+}

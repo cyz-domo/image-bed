@@ -548,7 +548,7 @@ async function uploadOne(file, done, total) {
   if (isVideo) return uploadDirect(file, done, total); // 视频绕过函数 6MB 请求体限制，直传 GitHub
   const payload = await compressForUpload(file);
   if (payload !== file) setStatus(`已压缩 ${file.name}（${(file.size / 1048576).toFixed(1)} MB → ${(payload.size / 1048576).toFixed(1)} MB），上传中……`);
-  if (payload.size > 5 * 1048576) return uploadDirect(payload, done, total); // 压缩后仍超 5MB（或保留原图），走直传
+  if (payload.size > 3.5 * 1048576) return uploadDirect(payload, done, total); // 压缩后仍超 3.5MB（或保留原图），走直传
   const form = new FormData(); form.append("file", payload); form.append("partition", state.currentUploadPartition || "");
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
@@ -587,7 +587,7 @@ async function uploadBatch(files) {
       directFiles.push(file);
     } else {
       const payload = await compressForUpload(file);
-      if (payload.size > 5 * 1048576) {
+      if (payload.size > 3.5 * 1048576) {
         directFiles.push(payload);
       } else {
         normalPayloads.push({ original: file, payload });
@@ -641,7 +641,7 @@ async function uploadBatch(files) {
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) setStatus(`第 ${bIdx + 1}/${batches.length} 批上传中 ${(event.loaded / 1048576).toFixed(1)}/${(event.total / 1048576).toFixed(1)} MB……`);
           };
-          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || `请求失败 (${xhr.status})`));
+          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(xhr.response?.message || (xhr.status >= 500 ? `服务器处理失败 (${xhr.status})，文件可能过大或超出平台限制` : `请求失败 (${xhr.status})`)));
           xhr.onerror = () => reject(new Error("网络错误"));
           xhr.send(form);
         });
