@@ -2,6 +2,7 @@ import sharp from "sharp";
 import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
 import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../_lib/state.js";
+import { upsertRecords, writeIndex } from "../_lib/history-index.js";
 import { error, json } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
 import { validPartition } from "../_lib/partition.js";
@@ -112,6 +113,7 @@ export async function onRequest({ request, env }) {
     }
 
     // 3. 将所有文件通过 Git Data API 打包写入（并发执行网络 I/O，消除超时风险）
+    let uploadedCommitSha = null;
     try {
       // 3.1 准备 fallback 模式下的 state.json Blob 任务
       let stateBlobTask = null;
@@ -203,6 +205,7 @@ export async function onRequest({ request, env }) {
       });
       if (!newCommitRes.ok) throw new Error(`创建 Commit 失败 (${newCommitRes.status})`);
       const newCommitSha = (await newCommitRes.json()).sha;
+      uploadedCommitSha = newCommitSha;
 
       // 3.6 更新 ref 指针
       const updateRefRes = await ghApi(env, "git/refs/heads/main", {
@@ -210,6 +213,13 @@ export async function onRequest({ request, env }) {
         body: JSON.stringify({ sha: newCommitSha, force: false })
       });
       if (!updateRefRes.ok) throw new Error(`更新分支引用失败 (${updateRefRes.status})`);
+
+      // 3.7 把新条目登记进仓库索引（单独一次提交：新 commit sha 只能在图片提交后得知）
+      // 失败只影响下次列表是否走全量扫描，不改变本次上传结果
+      const indexRecords = upsertRecords([], processedFiles.map((item) => ({ path: item.path, thumbPath: item.thumbPath || "", bytes: item.bytes, commit: newCommitSha })));
+      await writeIndex(env, indexRecords, `chore: index ${processedFiles.length === 1 ? processedFiles[0].path.split("/").pop() : `${processedFiles.length} images`}`)
+        .then((written) => { if (!written) console.warn("[Upload] 图库索引更新失败，下次列表将回退全量扫描"); })
+        .catch((cause) => console.warn("[Upload] 图库索引写入异常:", cause.message));
     } catch (cause) {
       await releaseDailyQuota(env, reservation).catch(() => {});
       throw cause;
@@ -227,8 +237,8 @@ export async function onRequest({ request, env }) {
     // 5. 刷新历史缓存并构造结果返回
     invalidateHistoryCache();
     const results = processedFiles.map((item) => {
-      const url = imageUrl(env, item.path, state.settings);
-      const thumbUrl = item.thumbPath ? imageUrl(env, item.thumbPath, state.settings) : null;
+      const url = imageUrl(env, item.path, state.settings, uploadedCommitSha);
+      const thumbUrl = item.thumbPath ? imageUrl(env, item.thumbPath, state.settings, uploadedCommitSha) : null;
       return {
         path: item.path,
         url,

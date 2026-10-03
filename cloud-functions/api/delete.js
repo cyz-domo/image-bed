@@ -1,6 +1,7 @@
 import { readSession, authUnavailable, isAdminSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
 import { loadState, readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
+import { readIndex, dropRecords, indexBlobEntry } from "../_lib/history-index.js";
 import { error, json } from "../_lib/http.js";
 
 // 只允许删除 images/ 目录下的图片与视频文件（含分区前缀），防止路径穿越或误删其他内容
@@ -21,6 +22,12 @@ async function batchDelete(env, paths) {
   }
 
   try {
+    // 图库索引在同一次提交里剔除被删项；索引本身不可用时只删文件，下次列表会全量扫描兜底
+    try {
+      const existing = await readIndex(env);
+      if (existing) treeEntries.push(await indexBlobEntry(env, dropRecords(existing.records, paths)));
+    } catch (cause) { console.warn("[delete] 索引更新准备失败:", cause?.message); }
+
     // 1. 获取 main 分支最新 commit sha
     const refRes = await ghApi(env, "git/ref/heads/main");
     if (!refRes.ok) return { ok: false, message: `获取分支引用失败 (${refRes.status})` };

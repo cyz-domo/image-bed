@@ -1,32 +1,47 @@
 import { ghApi } from "../_lib/github.js";
 import { readSession, isAdminSession } from "../_lib/auth.js";
 import { readHistoryCache, writeHistoryCache, loadState, readMemoryHistory, writeMemoryHistory } from "../_lib/state.js";
+import { readIndex, writeIndex, itemsToRecords, recordsToItems, thumbPathOf } from "../_lib/history-index.js";
 import { json, error } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
 import { partitionOf } from "../_lib/partition.js";
 
 const imagePath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/.+\.(?:png|jpe?g|gif|webp|mp4)$/i;
 const fileTypeOf = (path) => /\.mp4$/i.test(path) ? "video" : "image";
-const baseUrl = (path, env, settings) => imageUrl(env, path, settings);
 // KV 里缓存的数据最长复用 10 分钟；无 KV 时退回实例内存缓存
 const KV_CACHE_TTL_MS = 600000;
 
-async function fetchFromGitHub(env, settings) {
+// 全量 tree 扫描：只在索引缺失/损坏/被要求重建时兜底，仓库文件数大了以后可能被 GitHub 截断
+async function scanTree(env) {
   const response = await ghApi(env, "git/trees/main?recursive=1");
   if (!response.ok) throw new Error(`GitHub tree 读取失败 (${response.status})`);
   const tree = await response.json();
   if (tree.truncated) throw new Error("GitHub tree 结果不完整");
-  // thumb: 同名缩略图存于 .thumbnails/；存量老图没有则降级用原图
-  const thumbSet = new Set((tree.tree || []).filter((item) => item.type === "blob" && item.path.startsWith(".thumbnails/")).map((item) => item.path));
-  return (tree.tree || [])
-    .filter((item) => item.type === "blob" && imagePath.test(item.path))
-    .map((item) => {
-      const thumbPath = `.thumbnails/${item.path.slice("images/".length)}`;
-      return { path: item.path, partition: partitionOf(item.path), type: fileTypeOf(item.path), url: baseUrl(item.path, env, settings), ...(thumbSet.has(thumbPath) ? { thumb: baseUrl(thumbPath, env, settings) } : {}) };
-    })
+  const blobs = (tree.tree || []).filter((entry) => entry.type === "blob");
+  const thumbSet = new Set(blobs.filter((entry) => entry.path.startsWith(".thumbnails/")).map((entry) => entry.path));
+  return blobs
+    .filter((entry) => imagePath.test(entry.path))
+    .map((entry) => ({
+      path: entry.path,
+      type: fileTypeOf(entry.path),
+      ...(Number.isSafeInteger(entry.size) ? { bytes: entry.size } : {}),
+      ...(thumbSet.has(thumbPathOf(entry.path)) ? { thumb: thumbPathOf(entry.path) } : {}),
+    }))
     .reverse();
 }
 
+// 冷路径优先读仓库内索引（一次 contents 请求）；读不到才扫全量 tree 并顺手把索引建起来
+async function loadItems(env, rebuild) {
+  if (!rebuild) {
+    try {
+      const indexed = await readIndex(env);
+      if (indexed) return recordsToItems(indexed.records);
+    } catch (cause) { console.warn("[history] 索引读取失败，回退全量扫描:", cause.message); }
+  }
+  const items = await scanTree(env);
+  await writeIndex(env, itemsToRecords(items), "chore: rebuild image index").catch((cause) => console.warn("[history] 索引重建写入失败:", cause.message));
+  return items;
+}
 
 export async function onRequest({ request, env }) {
   const session = await readSession(request, env); if (!session) return error("UNAUTHENTICATED", "登录后可查看图片库", 401);
@@ -44,10 +59,16 @@ export async function onRequest({ request, env }) {
     let items = readMemoryHistory();
     if (!items) {
       const cached = await readHistoryCache(config);
-      if (cached && Date.now() - cached.savedAt < KV_CACHE_TTL_MS) { items = cached.items; writeMemoryHistory(items); }
-      else { items = await fetchFromGitHub(config, settings); await writeHistoryCache(config, items); writeMemoryHistory(items); }
+      const rebuild = url.searchParams.get("rebuild") === "1" && isAdminSession(session, env);
+      if (cached && !rebuild && Date.now() - cached.savedAt < KV_CACHE_TTL_MS) { items = cached.items; writeMemoryHistory(items); }
+      else { items = await loadItems(config, rebuild); await writeHistoryCache(config, items); writeMemoryHistory(items); }
     }
-    const normalizeItems = (list) => list.map((item) => ({ ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings), ...(item.thumb ? { thumb: imageUrl(config, `.thumbnails/${item.path.slice("images/".length)}`, settings) } : {}) }));
+    // 每项按记录的 commit 引用生成地址：钉到 commit 时 CDN 给 immutable 长缓存，未知时退回 @main。
+    // 缩略图可能比原图晚提交（存量补图），所以只在自己的 m 存在时才钉，否则退回 @main 避免 404
+    const normalizeItems = (list) => list.map((item) => {
+      const ref = item.commit || "main";
+      return { ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings, ref), ...(item.thumb ? { thumb: imageUrl(config, thumbPathOf(item.path), settings, item.thumbCommit || "main") } : {}) };
+    });
     items = normalizeItems(items);
     // 视图范围与数据隔离：
     // 普通用户：始终只能看明确属于自己的图片
