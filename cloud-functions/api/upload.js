@@ -91,6 +91,7 @@ export async function onRequest({ request, env }) {
       // 缩略图（单通道轻量压缩，effort: 2 降低函数执行耗时）
       let thumbBytes = null;
       let thumbPath = null;
+      let thumbWarning = null;
       if (isVideo) {
         try {
           const posterFile = form.getAll("poster")[idx] || form.get("poster");
@@ -101,15 +102,17 @@ export async function onRequest({ request, env }) {
               thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
             }
           }
-        } catch { thumbBytes = null; thumbPath = null; }
+        } catch (cause) { thumbBytes = null; thumbPath = null; thumbWarning = cause?.message || "封面处理失败"; }
       } else {
         try {
           thumbBytes = await sharp(source).resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 65, effort: 2 }).toBuffer();
           thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${path.split("/").pop()}`;
-        } catch { thumbBytes = null; thumbPath = null; }
+        } catch (cause) { thumbBytes = null; thumbPath = null; thumbWarning = cause?.message || "缩略图生成失败"; }
       }
+      // 原图已经要存下了，缺缩略图只影响图库首屏；静默降级会让人以为一切正常
+      if (!thumbPath) thumbWarning = thumbWarning || (isVideo ? "未收到可用的视频封面" : "缩略图生成失败");
 
-      processedFiles.push({ path, thumbPath, isVideo, outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", output, thumbBytes });
+      processedFiles.push({ path, thumbPath, thumbWarning, isVideo, outputType, bytes: output.length, compressed: !keepOriginal && sniffed !== "image/gif", output, thumbBytes });
     }
 
     // 3. 将所有文件通过 Git Data API 打包写入（并发执行网络 I/O，消除超时风险）
@@ -173,6 +176,7 @@ export async function onRequest({ request, env }) {
               return { path: item.thumbPath, mode: "100644", type: "blob", sha: thumbBlobSha };
             }
             item.thumbPath = null;
+            item.thumbWarning = item.thumbWarning || `缩略图写入仓库失败 (${thumbBlobRes.status})`;
             return null;
           })());
         }
@@ -248,6 +252,7 @@ export async function onRequest({ request, env }) {
         content_type: item.outputType,
         bytes: item.bytes,
         compressed: item.compressed,
+        ...(item.thumbWarning ? { thumb_warning: item.thumbWarning } : {}),
         daily_remaining: reservation.remaining
       };
     });

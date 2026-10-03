@@ -561,12 +561,132 @@ function appendUploadResult(data) {
   const urlText = document.createElement("span"); urlText.className = "url"; urlText.textContent = resultUrl;
   const actions = document.createElement("div"); actions.className = "result-actions";
   for (const [text, value, label] of [["🔗", resultUrl, "复制链接"], ["Ⓜ", data.markdown, "复制 Markdown"]]) { const button = document.createElement("button"); button.className = "icon-button"; button.dataset.copy = value || ""; button.title = label; button.ariaLabel = label; button.textContent = text; actions.append(button); }
-  info.append(urlText, actions); result.append(preview, info); $("upload-results").append(result);
+  info.append(urlText, actions); result.append(preview, info);
+  if (data.thumb_warning) { const note = document.createElement("p"); note.className = "result-note"; note.textContent = `原图已保存，但${data.thumb_warning}——可在 设置 › 存储 里检查补齐`; info.append(note); showToast(`原图已保存，但${data.thumb_warning}`, true); }
+  $("upload-results").append(result);
   $("upload-results").querySelectorAll("[data-copy]:not([data-bound])").forEach((button) => { button.dataset.bound = 1; button.onclick = async () => copyText(button.dataset.copy, button); });
   return true;
 }
 function readAsBase64(blob) {
   return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(new Error("读取文件失败")); reader.readAsDataURL(blob); });
+}
+
+/* ---------- 缩略图体检与浏览器端补齐 ----------
+   存量老图缺缩略图时，图库会去下载几 MB 的原图。这里在浏览器把原图缩成 320px webp
+   直接提交进仓库，再让服务端登记索引——边缘函数不必下载原图，也就不会撞函数时限。 */
+const THUMB_MAX_EDGE = 320;
+const thumbTask = { token: null, owner: "", repo: "", items: [], running: false };
+
+function thumbCanvas(blob) {
+  return createImageBitmap(blob)
+    .then((bitmap) => {
+      const scale = Math.min(1, THUMB_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close?.();
+      return canvas;
+    })
+    .catch(() => { throw new Error("浏览器无法解码这张图片"); });
+}
+
+async function makeThumbBlob(blob) {
+  const canvas = await thumbCanvas(blob);
+  const encoded = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.65));
+  if (!encoded) throw new Error("浏览器不支持导出 webp");
+  return encoded;
+}
+
+const githubContentUrl = (path) => `https://api.github.com/repos/${thumbTask.owner}/${thumbTask.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+const githubHeaders = () => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${thumbTask.token}`, "X-GitHub-Api-Version": "2022-11-28" });
+
+async function putThumbFile(path, content) {
+  const existing = await fetch(githubContentUrl(path), { headers: githubHeaders() });
+  // 文件已在仓库但索引没记下（上次登记失败/老图手工补的）：同样登记，索引才会指向它
+  if (existing.status === 200) return { commit: (await existing.json().catch(() => ({})))?.commit?.sha || null, existed: true };
+  if (existing.status !== 404) throw new Error(`检查缩略图失败 (${existing.status})`);
+  const response = await fetch(githubContentUrl(path), { method: "PUT", headers: { ...githubHeaders(), "content-type": "application/json" }, body: JSON.stringify({ message: `chore: thumb ${path.split("/").pop()}`, content, branch: "main" }) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || `提交缩略图失败 (${response.status})`);
+  return { commit: body.commit?.sha || null, existed: false };
+}
+
+function thumbPanel() {
+  const box = $("thumb-check");
+  if (!box) return null;
+  box.hidden = false;
+  return box;
+}
+
+function renderThumbCheck(data) {
+  const box = thumbPanel(); if (!box) return;
+  const items = data.missing || [];
+  thumbTask.items = items.map((item) => ({ ...item, status: "待补齐", note: "" }));
+  const rows = thumbTask.items.map((item, index) => `<li data-thumb-row="${index}"><span class="thumb-path">${escapeHtml(item.path)}</span><span class="thumb-size">${item.bytes ? `${(item.bytes / 1048576).toFixed(1)} MB` : "未知大小"}</span><span class="thumb-state">${escapeHtml(item.status)}</span></li>`).join("");
+  box.innerHTML = `<p class="field-hint">共 ${data.total} 张图，缺缩略图 <strong>${items.length}</strong> 张${items.length ? `（合计约 ${(data.missingBytes / 1048576).toFixed(0)} MB 原图会被图库直接下载）` : "，图库已经是轻量的。"}</p>${items.length ? `<ul class="thumb-list">${rows}</ul><button id="thumb-fix" class="ghost-button small" type="button">开始补齐（在浏览器里生成）</button>` : ""}`;
+  const fix = $("thumb-fix");
+  if (fix) fix.onclick = runThumbFix;
+}
+
+function updateThumbRow(index, status, note = "") {
+  const item = thumbTask.items[index]; if (item) { item.status = status; item.note = note; }
+  const row = document.querySelector(`[data-thumb-row="${index}"]`);
+  if (row) { const cell = row.querySelector(".thumb-state"); cell.textContent = status; if (note) cell.title = note; }
+}
+
+async function runThumbFix() {
+  if (thumbTask.running) return;
+  thumbTask.running = true;
+  const button = $("thumb-fix");
+  const setButton = (text, disabled) => { if (!button) return; button.disabled = disabled; button.textContent = text; };
+  if (button) button.onclick = () => { thumbTask.running = false; setButton("正在停止…", true); };
+  setButton("停止补齐", false);
+  let done = 0;
+  for (let index = 0; index < thumbTask.items.length; index += 1) {
+    const item = thumbTask.items[index];
+    if (["已完成", "已存在", "无需缩略图"].includes(item.status)) continue;
+    if (!thumbTask.running) { updateThumbRow(index, "已停止"); continue; }
+    try {
+      updateThumbRow(index, "下载原图…");
+      const response = await fetch(item.url);
+      if (!response.ok) throw new Error(`原图下载失败 (${response.status})`);
+      const source = await response.blob();
+      updateThumbRow(index, "生成中…");
+      const thumbBlob = await makeThumbBlob(source);
+      if (thumbBlob.size >= source.size) { updateThumbRow(index, "无需缩略图", "原图已经比缩略图小"); continue; }
+      updateThumbRow(index, "提交中…");
+      const put = await putThumbFile(item.thumb, await readAsBase64(thumbBlob));
+      if (!put.commit) throw new Error("GitHub 未返回缩略图提交号");
+      await api("/api/admin/thumbnails", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "register", path: item.path, thumb: item.thumb, bytes: item.bytes || source.size, thumb_commit: put.commit }) });
+      updateThumbRow(index, put.existed ? "已存在" : "已完成");
+      done += 1;
+    } catch (cause) {
+      updateThumbRow(index, "失败", cause.message);
+    }
+    setButton(`停止补齐（已补 ${done}/${thumbTask.items.length}）`, false);
+  }
+  const left = thumbTask.items.filter((item) => !["已完成", "已存在", "无需缩略图"].includes(item.status)).length;
+  thumbTask.running = false;
+  if (left) setButton(`继续补齐（剩 ${left} 张）`, false);
+  else setButton(`补齐结束（新补 ${done} 张）`, true);
+  if (done) { invalidateGalleryCache(); showToast(`已补齐 ${done} 张缩略图，重新打开图片库即可生效`); }
+}
+
+async function checkThumbnails() {
+  const button = $("thumb-scan"); if (button.disabled) return;
+  button.disabled = true; button.textContent = "检查中…";
+  const box = thumbPanel(); if (box) box.hidden = true;
+  try {
+    const data = await api("/api/admin/thumbnails", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "scan", with_token: true }) });
+    thumbTask.token = data.token || null; thumbTask.owner = data.owner || ""; thumbTask.repo = data.repo || "";
+    if (data.missing?.length && !thumbTask.token) { box && (box.innerHTML = '<p class="status error">服务端未返回写入凭证，无法自动补齐。</p>'); return; }
+    renderThumbCheck(data);
+  } catch (cause) {
+    if (box) box.innerHTML = `<p class="status error">${escapeHtml(cause.message)}</p>`;
+  } finally {
+    if (button.isConnected) { button.disabled = false; button.textContent = "检查缩略图"; }
+  }
 }
 
 // 大文件直传 GitHub：EdgeOne 函数请求体上限 6MB，超过安全线的载荷（视频一律；图片压缩后仍超 5MB 时）
@@ -1171,6 +1291,7 @@ $("dropzone").ondragover = (event) => { event.preventDefault(); $("dropzone").cl
 $("dropzone").ondragleave = () => $("dropzone").classList.remove("dragging");
 $("dropzone").ondrop = (event) => { event.preventDefault(); $("dropzone").classList.remove("dragging"); if (event.dataTransfer.files.length) upload(event.dataTransfer.files); };
 $("setting-save").onclick = saveSettings;
+$("thumb-scan").onclick = checkThumbnails;
 $("setting-add-user").onclick = addUserToAllowlist;
 $("setting-new-user").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); addUserToAllowlist(); } };
 $("setting-hero-blur").oninput = (event) => { const value = Number(event.target.value); $("hero-blur-value").textContent = value; applyHeroBlur(value); };
