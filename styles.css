@@ -51,6 +51,9 @@ body.has-hero .topbar, :root[data-hero] .topbar { background:transparent; border
 .account-toggle { min-height:44px; padding:5px 8px; display:inline-flex; align-items:center; gap:9px; border:0; border-radius:999px; background:transparent; color:var(--text); }
 .account-toggle:hover { background:var(--accent-soft); }
 .account-avatar { width:32px; height:32px; border-radius:50%; object-fit:cover; background:var(--accent-soft); }
+.account-loading { display:inline-flex; align-items:center; gap:8px; padding:0 6px; color:var(--muted); font-size:13px; }
+.account-loading::before { content:""; width:14px; height:14px; border-radius:50%; border:2px solid var(--line-strong); border-top-color:transparent; animation:account-spin .8s linear infinite; }
+@keyframes account-spin { to { transform:rotate(360deg); } }
 .container { width:min(1120px,calc(100% - 48px)); margin:auto; padding:42px 0 88px; }
 .page { animation:page-in .5s var(--ease) both; }
 @keyframes page-in { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
@@ -116,6 +119,10 @@ h1 { margin:0 0 24px; font-size:clamp(46px,7vw,82px); line-height:1.02; letter-s
 .shot { position:relative; margin:0; overflow:hidden; border-radius:16px; background:var(--surface-solid); box-shadow:0 10px 30px rgba(0,0,0,.06); }
 .shot img, .shot video { display:block; width:100%; aspect-ratio:3/2; object-fit:cover; background:var(--surface-solid); transition:transform .5s var(--ease); }
 .shot:hover img { transform:scale(1.025); }
+.thumb-missing { width:100%; aspect-ratio:3/2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; border:0; border-radius:16px; color:var(--muted); background:var(--surface-solid); font-size:13px; cursor:pointer; }
+.thumb-missing span { font-weight:600; }
+.thumb-missing small { color:var(--muted); font-size:12px; }
+.thumb-missing:disabled { cursor:progress; opacity:.7; }
 .shot-overlay { position:absolute; inset:auto 0 0; display:flex; gap:6px; padding:28px 10px 10px; background:linear-gradient(transparent,rgba(0,0,0,.58)); opacity:0; transition:opacity var(--ease); }
 .shot:hover .shot-overlay, .shot:focus-within .shot-overlay { opacity:1; }
 .shot.selectable .check { position:absolute; top:12px; left:12px; width:24px; height:24px; border:2px solid #fff; border-radius:50%; background:rgba(0,0,0,.18); }

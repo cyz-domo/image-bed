@@ -14,7 +14,12 @@ function safeRemoteUrl(value) {
 async function api(path, options) {
   const response = await fetch(path, { credentials: "same-origin", ...options });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `请求失败 (${response.status})`);
+  if (!response.ok) {
+    const failure = new Error(body.message || `请求失败 (${response.status})`);
+    failure.code = body.code || ""; failure.status = response.status;
+    if (failure.code === "UNAUTHENTICATED" && path !== "/api/auth/me") notifySessionExpired();
+    throw failure;
+  }
   return body;
 }
 
@@ -23,8 +28,42 @@ function showToast(message, error = false) {
   let toast = document.querySelector(".toast");
   if (!toast) { toast = document.createElement("div"); toast.className = "toast"; toast.setAttribute("role", "status"); document.body.appendChild(toast); }
   toast.classList.toggle("error", error); toast.setAttribute("aria-live", error ? "assertive" : "polite"); toast.textContent = message;
-  requestAnimationFrame(() => toast.classList.add("show")); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
+  requestAnimationFrame(() => toast.classList.add("show")); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
 }
+
+/* ---------- 登录提示：回跳结果、跳转进行中、授权中断 ---------- */
+const LOGIN_PENDING_KEY = "image-bed.login-pending";
+const AUTH_ERROR_MESSAGES = {
+  state: "登录校验已失效，请重新使用 GitHub 登录",
+  allowed: "该 GitHub 账号没有上传权限，请联系管理员添加后重试",
+  oauth: "GitHub 授权失败，请重新登录",
+  config: "站点登录配置缺失，请联系管理员",
+};
+let loginJustCompleted = false;
+
+function handleAuthResult() {
+  const params = new URLSearchParams(location.search);
+  const result = params.get("auth");
+  if (!result) {
+    let startedAt = 0;
+    try { startedAt = Number(sessionStorage.getItem(LOGIN_PENDING_KEY) || 0); } catch {}
+    // 点了登录但没带回跳参数（在 GitHub 页取消或回跳丢失），给出可重试的提示
+    if (startedAt && Date.now() - startedAt < 5 * 60 * 1000) showToast("GitHub 登录未完成，请重新点击登录", true);
+    try { sessionStorage.removeItem(LOGIN_PENDING_KEY); } catch {}
+    return;
+  }
+  try { sessionStorage.removeItem(LOGIN_PENDING_KEY); } catch {}
+  history.replaceState(null, "", location.pathname + location.hash);
+  if (result === "success") loginJustCompleted = true;
+  else showToast(AUTH_ERROR_MESSAGES[params.get("reason")] || "登录失败，请重试", true);
+}
+
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.('a[href="/api/auth/login"]');
+  if (!link) return;
+  try { sessionStorage.setItem(LOGIN_PENDING_KEY, String(Date.now())); } catch {}
+  showToast("正在跳转 GitHub 授权，请在新页面确认…");
+});
 function focusableIn(container) { return container ? [...container.querySelectorAll("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])")].filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null) : []; }
 function trapFocus(container, event) {
   if (event.key !== "Tab") return false;
@@ -64,11 +103,34 @@ function avatarFallback(login) { return `data:image/svg+xml,${encodeURIComponent
 function updateQuotaDisplay(remaining, limit) { const el = $("quota-status"); if (el && Number.isFinite(remaining)) { el.hidden = false; el.textContent = `今日剩余 ${remaining} / ${limit} 张`; } }
 async function loadQuota() { try { const data = await api("/api/quota"); updateQuotaDisplay(data.remaining, data.limit); } catch { const el = $("quota-status"); if (el) { el.hidden = false; el.textContent = "今日额度暂不可用"; } } }
 
+function renderLoggedOut(label = "登录") {
+  state.loggedIn = false;
+  state.login = null;
+  $("account").innerHTML = `<a class="primary-button" href="/api/auth/login">${escapeHtml(label)}</a>`;
+  $("upload-cta").classList.remove("hidden");
+  $("upload-panel").classList.add("hidden");
+  $("settings-panel").classList.add("hidden");
+  const accountInfo = $("settings-account-info"); if (accountInfo) accountInfo.textContent = "尚未登录。";
+  ["select-mode", "select-all", "delete-selected", "select-exit"].forEach((id) => $(id)?.classList.add("hidden"));
+  if (state.tab === "gallery") { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
+}
+
+let sessionExpiredNotified = false;
+function notifySessionExpired() {
+  localStorage.removeItem(SESSION_CACHE_KEY);
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  renderLoggedOut("重新登录");
+  showToast("登录状态已过期，请重新使用 GitHub 登录", true);
+}
+
 function renderLoggedIn(login, avatarUrl) {
   state.loggedIn = true;
   state.login = login;
+  sessionExpiredNotified = false;
   const account = $("account");
   account.classList.remove("hidden");
+  const showingLoginPrompt = !$("gallery-login").classList.contains("hidden");
   const safeAvatar = safeRemoteUrl(avatarUrl) || avatarFallback(login);
   account.innerHTML = `<button id="account-toggle" class="account-toggle" aria-label="账户菜单" aria-haspopup="true" aria-expanded="false"><img class="account-avatar" alt="${escapeHtml(login)}"><span class="account-name">@${escapeHtml(login)}</span></button>`;
   const imgEl = account.querySelector("img.account-avatar");
@@ -78,10 +140,19 @@ function renderLoggedIn(login, avatarUrl) {
   const toggle = $("account-toggle");
   toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); const opening = panel.classList.contains("hidden"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(opening)); if (opening) { state.settingsOpener = toggle; $("setting-hero-url")?.focus(); } else toggle.focus(); };
   const accountInfo = $("settings-account-info"); if (accountInfo) accountInfo.textContent = `已以 @${login} 身份登录`;
-  $("logout").onclick = async () => { localStorage.removeItem(SESSION_CACHE_KEY); invalidateGalleryCache(); await api("/api/auth/logout", { method: "POST" }); location.reload(); };
+  $("logout").onclick = async () => {
+    const button = $("logout");
+    if (button) button.disabled = true;
+    localStorage.removeItem(SESSION_CACHE_KEY);
+    invalidateGalleryCache();
+    try { await api("/api/auth/logout", { method: "POST" }); showToast("已退出登录"); }
+    catch (cause) { showToast(cause.code === "LOGOUT_FAILED" ? "服务端会话吊销失败，本地已退出登录" : `退出登录失败：${cause.message}`, true); }
+    renderLoggedOut();
+  };
+  if (loginJustCompleted) { loginJustCompleted = false; showToast(`GitHub 登录成功，当前账号 @${login}`); }
   loadSettings();
   loadQuota();
-  if (state.tab === "gallery" && !$("gallery-login").classList.contains("hidden")) { $("gallery-login").classList.add("hidden"); loadGallery(); }
+  if (state.tab === "gallery" && (showingLoginPrompt || !$("gallery").children.length)) { $("gallery-login").classList.add("hidden"); loadGallery(); }
 }
 
 async function loadAccount() {
@@ -90,6 +161,7 @@ async function loadAccount() {
   let hint = null;
   try { hint = JSON.parse(localStorage.getItem(SESSION_CACHE_KEY) || "null"); } catch {}
   if (hint?.login) renderLoggedIn(hint.login, hint.avatarUrl);
+  else account.innerHTML = '<span class="account-loading" role="status">检查登录状态…</span>';
   try {
     const data = await api("/api/auth/me");
     if (data.authenticated) {
@@ -98,16 +170,18 @@ async function loadAccount() {
       refreshPartitions(); // 登录确认后轻量拉取分区列表，首页下拉立即可用
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
-      if (hint) location.reload(); // 乐观渲染错了（会话已失效），重来一次干净状态
+      // 上次会话已失效：只切换为未登录界面，不再整页 reload（reload 会吞掉提示且放大故障）
+      renderLoggedOut(loginJustCompleted ? "登录" : "重新登录");
+      if (hint) showToast("登录状态已过期，请重新使用 GitHub 登录", true);
     }
   } catch (error) {
     if (hint) {
-      state.loggedIn = false; state.login = null;
-      account.innerHTML = '<a class="primary-button" href="/api/auth/login">重新登录</a>';
-      $("upload-panel").classList.add("hidden"); $("upload-cta").classList.remove("hidden");
-      showToast("登录状态暂时无法确认，请重新登录", true);
+      renderLoggedOut("重新登录");
+      showToast(`登录状态暂时无法确认：${error.message}`, true);
     } else {
       account.innerHTML = '<a class="primary-button" href="/api/auth/login">登录</a>';
+      // 未登录访问时 /api/auth/me 失败属常见（状态存储不可用），提示但不打扰
+      if (error.status >= 500) showToast(`登录状态检查暂不可用：${error.message}`, true);
       console.warn("auth/me:", error.message);
     }
   }
@@ -522,17 +596,19 @@ async function uploadDirect(file, done, total) {
       xhr.send(JSON.stringify({ message, content, branch: "main" }));
     });
     setStatus(`${file.name} 正在直传 GitHub（${done + 1}/${total}）……`);
-    await putGithub(path, await readAsBase64(file), `chore: upload ${name}`);
+    const uploaded = await putGithub(path, await readAsBase64(file), `chore: upload ${name}`);
+    const commitSha = uploaded?.commit?.sha || null;
     let thumbPath = null;
+    let thumbCommitSha = null;
     if (file.type === "video/mp4") {
       const posterBlob = await makeVideoPoster(file);
       if (posterBlob) {
         setStatus(`正在上传视频封面（${done + 1}/${total}）……`);
         const posterBase64 = await readAsBase64(posterBlob);
-        if (posterBase64) { thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${name}`; try { await putGithub(thumbPath, posterBase64, `chore: thumb ${name}`); } catch { thumbPath = null; } }
+        if (posterBase64) { thumbPath = `.thumbnails/${partitionPrefix}${year}/${month}/${name}`; try { const poster = await putGithub(thumbPath, posterBase64, `chore: thumb ${name}`); thumbCommitSha = poster?.commit?.sha || commitSha; } catch { thumbPath = null; } }
       }
     }
-    const data = await api("/api/upload/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, partition, bytes: file.size, thumb_path: thumbPath }) });
+    const data = await api("/api/upload/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, partition, bytes: file.size, thumb_path: thumbPath, commit_sha: commitSha, thumb_commit_sha: thumbCommitSha }) });
     if (!appendUploadResult(data)) throw new Error("服务端返回了无效地址");
     updateQuotaDisplay(session.daily_remaining, Number($("setting-daily-limit").value) || 100);
     return true;
@@ -787,11 +863,15 @@ function renderGallery(items) {
     <button class="icon-button" data-copy="${escapeHtml(`![image](${safeUrl})`)}" data-copy-path="${escapeHtml(item.path)}" title="复制 Markdown" aria-label="复制 Markdown"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="1.5" y="4.5" width="17" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 12.5v-5l2.5 3 2.5-3v5M13 7.5v5M13 12.5l-1.8-1.8M13 12.5l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   };
   const card = (item) => {
-    const imageUrl = safeRemoteUrl(item.thumb && item.type !== "video" ? item.thumb : item.url);
+    const safeUrl = safeRemoteUrl(item.url);
     const alt = escapeHtml(item.path || "图片");
+    const sizeLabel = Number.isFinite(item.bytes) ? `原图 ${(item.bytes / 1048576).toFixed(1)} MB` : "原图";
     const media = item.type === "video"
-      ? `<video muted loop preload="metadata" playsinline ${item.thumb ? `poster="${escapeHtml(safeRemoteUrl(item.thumb))}" ` : ""}src="${escapeHtml(safeRemoteUrl(item.url))}"></video>`
-      : `<img loading="lazy" src="${escapeHtml(imageUrl)}" alt="${alt}" />`;
+      ? `<video muted loop preload="metadata" playsinline ${item.thumb ? `poster="${escapeHtml(safeRemoteUrl(item.thumb))}" ` : ""}src="${escapeHtml(safeUrl)}"></video>`
+      : item.thumb
+        ? `<img loading="lazy" decoding="async" src="${escapeHtml(safeRemoteUrl(item.thumb))}" alt="${alt}" />`
+        // 存量老图没有缩略图，直接挂原图会让一页下载几十 MB，改为按需点击加载
+        : `<button type="button" class="thumb-missing" data-load-original="${escapeHtml(safeUrl)}" data-alt="${alt}"><span>无缩略图</span><small>点击加载${escapeHtml(sizeLabel)}</small></button>`;
     return selectMode()
       ? `<figure class="shot selectable${selection.has(item.path) ? " selected" : ""}" data-toggle="${escapeHtml(item.path)}">${media}<span class="check${selection.has(item.path) ? " checked" : ""}" aria-hidden="true"></span></figure>`
       : `<figure class="shot">${media}<figcaption class="shot-overlay">${iconButtons(item)}</figcaption></figure>`;
@@ -799,6 +879,16 @@ function renderGallery(items) {
   $("gallery").innerHTML = columns.map((column) => `<div class="masonry-col">${column.map(card).join("")}</div>`).join("");
   $("gallery").querySelectorAll("[data-view]").forEach((button) => button.onclick = () => openLightbox(button.dataset.view, button.dataset.viewPath));
   $("gallery").querySelectorAll("[data-copy]").forEach((button) => button.onclick = async () => copyText(button.dataset.copy, button, button.dataset.copyPath, button.title === "复制 Markdown" ? "Markdown" : "链接"));
+  $("gallery").querySelectorAll("[data-load-original]").forEach((button) => {
+    button.onclick = () => {
+      const hint = button.querySelector("small");
+      button.disabled = true; if (hint) hint.textContent = "正在加载原图…";
+      const image = document.createElement("img");
+      image.decoding = "async"; image.alt = button.dataset.alt || "图片"; image.src = button.dataset.loadOriginal;
+      image.onload = () => button.replaceWith(image);
+      image.onerror = () => { button.disabled = false; if (hint) hint.textContent = "加载失败，点击重试"; };
+    };
+  });
   // 选择模式下点卡片任意位置切换选中
   if (selectMode()) $("gallery").querySelectorAll(".shot.selectable").forEach((node) => node.onclick = () => { const path = node.dataset.toggle; selection.has(path) ? selection.delete(path) : selection.add(path); renderGallery(state.pageItems); updateSelectionUi(); });
   updateSelectionUi();
@@ -928,7 +1018,7 @@ async function loadGallery() {
   } catch (error) {
     if (requestId !== state.galleryRequest) return;
     if (cached) { setStatusQuiet(); return; }
-    if (error.message.includes("登录")) { $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
+    if (error.code === "UNAUTHENTICATED") { notifySessionExpired(); $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
   }
 }
@@ -1069,9 +1159,9 @@ $("delete-selected").onclick = deleteSelected;
 $("file-input").onchange = (event) => { const files = [...event.target.files]; event.target.value = ""; if (files.length) upload(files); };
 // 剪贴板粘贴上传：任何位置 Ctrl/Cmd+V 粘贴截图或复制的图片
 document.addEventListener("paste", (event) => {
-  if (!state.loggedIn) return;
   const files = [...(event.clipboardData?.items || [])].filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
   if (!files.length) return;
+  if (!state.loggedIn) { event.preventDefault(); showToast("请先使用 GitHub 登录，再粘贴上传图片", true); return; }
   event.preventDefault();
   switchTab("home");
   const named = files.map((file, index) => new File([file], file.name || `剪贴板图片-${Date.now()}-${index + 1}.png`, { type: file.type }));
@@ -1089,6 +1179,7 @@ document.addEventListener("click", (event) => { if (!$("settings-panel").contain
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
 $("next").onclick = () => { state.page += 1; loadGallery(); };
 
+handleAuthResult();
 loadAccount();
 loadHero();
 initThemeToggle();
