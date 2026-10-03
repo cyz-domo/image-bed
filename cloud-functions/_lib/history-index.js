@@ -100,14 +100,23 @@ export function itemsToRecords(items) {
 }
 
 // 读索引；返回 { records, sha }，不存在或损坏返回 null
+// 翻页/取历史每次都读同一份索引，一次 contents 请求要 0.3–1.5 秒，所以实例内记忆 30 秒；
+// 任何写入都会立刻作废这份记忆，冲突重试时强制重读，免得拿旧 sha 当乐观锁凭据
+const INDEX_MEMO_MS = 30_000;
+let indexMemo = null;
+
 export async function readIndex(env) {
+  if (indexMemo && Date.now() - indexMemo.at < INDEX_MEMO_MS) return indexMemo.value;
   const response = await ghApi(env, `contents/${INDEX_PATH}?ref=main`);
-  if (response.status === 404) return null;
+  if (response.status === 404) { indexMemo = { at: Date.now(), value: null }; return null; }
   if (!response.ok) throw new Error(`图库索引读取失败 (${response.status})`);
   const body = await response.json();
   if (typeof body.content !== "string") return null;
   const records = parseIndex(fromBase64(body.content));
-  return records ? { records, sha: body.sha } : null;
+  if (!records) return null;
+  const value = { records, sha: body.sha };
+  indexMemo = { at: Date.now(), value };
+  return value;
 }
 
 async function putIndex(env, records, sha, message) {
@@ -125,6 +134,7 @@ export async function writeIndex(env, records, message) {
     let sha = null;
     try { const existing = await readIndex(env); if (existing) { sha = existing.sha; current = upsertRecords(existing.records, recordsToItems(current)); } } catch {}
     const response = await putIndex(env, current, sha, message).catch(() => null);
+    indexMemo = null; // 写过一次就作废记忆，下一轮重试或下一个请求都能读到最新 sha
     if (response && response.ok) return true;
     if (response && response.status !== 409) return false;
   }

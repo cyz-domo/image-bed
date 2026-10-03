@@ -3,7 +3,9 @@ try { const savedScope = localStorage.getItem("image-bed.gallery-scope"); if (sa
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
 const GALLERY_CACHE_TTL = 5 * 60 * 1000;
-const GALLERY_CACHE_LIMIT = 6;
+const GALLERY_CACHE_LIMIT = 24;
+// 命中缓存后 60 秒内不再打网络：翻页时那一次 /api/history 请求是主要延迟来源
+const GALLERY_FRESH_MS = 60 * 1000;
 let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (text) => String(text ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1053,7 +1055,7 @@ function onPerPageChange() {
   const snapped = perPageValue();
   input.value = snapped;
   try { localStorage.setItem("image-bed.per-page", String(snapped)); } catch {}
-  if (snapped !== state.perPage) { state.perPage = snapped; state.page = 1; loadGallery(); }
+  if (snapped !== state.perPage) { state.perPage = snapped; state.page = 1; invalidateGalleryCache(); loadGallery(); }
 }
 $("per-page-input").onchange = onPerPageChange;
 $("per-page-input").onkeydown = (event) => { if (event.key === "Enter") event.target.blur(); };
@@ -1120,6 +1122,25 @@ function totalPagesFor(perPage) { return state.totalItems ? Math.max(1, Math.cei
 function renderPager(perPage) {
   const totalPages = totalPagesFor(perPage);
   $("page-label").textContent = totalPages ? `第 ${state.page} / ${totalPages} 页` : `第 ${state.page} 页`;
+  const jump = $("page-jump-input");
+  if (!jump) return;
+  jump.max = totalPages ? String(totalPages) : "";
+  if (document.activeElement !== jump) jump.value = "";
+}
+
+function onPageJump() {
+  const input = $("page-jump-input");
+  const target = Math.floor(Number(input.value));
+  input.value = "";
+  if (!Number.isSafeInteger(target) || target < 1) return;
+  const totalPages = totalPagesFor(perPageValue());
+  // 总页数还不知道时不跳：跳到越界的页会触发逐页回退，等于自己给自己刷一堆请求
+  if (!totalPages) { showToast("正在统计总页数，稍后再跳页"); return; }
+  const page = Math.min(target, totalPages);
+  if (page !== target) showToast(`一共 ${totalPages} 页，已跳到最后一页`);
+  if (page === state.page) { renderPager(perPageValue()); return; }
+  state.page = page;
+  loadGallery();
 }
 function invalidateGalleryCache() { try { Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX) || key.startsWith("image-bed.gallery-page1.")).forEach((key) => localStorage.removeItem(key)); } catch {} galleryPrefetches.clear(); }
 async function prefetchGallery(page, perPage) {
@@ -1135,29 +1156,47 @@ async function loadGallery() {
   $("gallery-empty").classList.add("hidden");
   $("select-mode").classList.add("hidden");
   const cached = readGalleryCache(state.page, perPage);
-  if (cached) { renderGallery(cached.items); state.hasNext = cached.hasNext; state.totalItems = Number.isFinite(cached.total) ? cached.total : null; $("gallery-count").textContent = state.totalItems ? `共 ${state.totalItems} 张` : `本页 ${cached.items.length} 张`; $("previous").disabled = state.page === 1; $("next").disabled = !cached.hasNext; renderPager(perPage); $("select-mode").classList.toggle("hidden", !cached.items.length); }
+  if (cached) {
+    applyGalleryPage(cached.items, cached.hasNext, cached.total, perPage);
+    if (Date.now() - cached.savedAt < GALLERY_FRESH_MS) { prefetchNeighbours(perPage); return; }
+  }
   else $("gallery").innerHTML = '<div class="skeleton" style="height:220px"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:200px"></div>';
   try {
     const data = await api(`/api/history?page=${state.page}&per_page=${perPage}${partitionQueryParam()}`);
     if (requestId !== state.galleryRequest) return;
     const items = data.items;
-    state.hasNext = data.has_next;
-    state.totalItems = Number.isFinite(data.total) ? data.total : null;
     if (Array.isArray(data.partitions)) { state.partitions = data.partitions; updatePartitionUi(); }
-    $("previous").disabled = state.page === 1; $("next").disabled = !state.hasNext;
-    renderPager(perPage);
-    $("gallery-count").textContent = `共 ${state.totalItems ?? items.length} 张`;
-    writeGalleryCache(state.page, perPage, items, data.has_next, state.totalItems);
-    if (data.has_next) { const nextPage = state.page + 1; const schedule = window.requestIdleCallback || ((callback) => setTimeout(callback, 150)); schedule(() => prefetchGallery(nextPage, perPage)); }
-    renderGallery(items);
-    $("select-mode").classList.toggle("hidden", !items.length);
+    writeGalleryCache(state.page, perPage, items, data.has_next, data.total);
+    applyGalleryPage(items, data.has_next, data.total, perPage, { rerender: !cached || !sameGalleryItems(cached.items, items) });
     if (!items.length && state.page > 1) { state.page -= 1; loadGallery(); return; }
     if (!items.length) { $("gallery").innerHTML = ""; $("gallery-empty").classList.remove("hidden"); }
+    prefetchNeighbours(perPage);
   } catch (error) {
     if (requestId !== state.galleryRequest) return;
     if (cached) { setStatusQuiet(); return; }
     if (error.code === "UNAUTHENTICATED") { notifySessionExpired(); $("gallery").innerHTML = ""; $("gallery-login").classList.remove("hidden"); }
     else $("gallery").innerHTML = `<p class="status error">${escapeHtml(error.message)}</p>`;
+  }
+}
+function applyGalleryPage(items, hasNext, total, perPage, { rerender = true } = {}) {
+  state.hasNext = hasNext;
+  state.totalItems = Number.isFinite(total) ? total : null;
+  if (rerender) renderGallery(items);
+  $("previous").disabled = state.page === 1;
+  $("next").disabled = !hasNext;
+  renderPager(perPage);
+  $("gallery-count").textContent = state.totalItems ? `共 ${state.totalItems} 张` : `本页 ${items.length} 张`;
+  $("select-mode").classList.toggle("hidden", !items.length);
+}
+// 整块 innerHTML 替换会让这一页的图片全部重新解码，看起来像又加载了一遍，所以内容没变就别重绘
+function sameGalleryItems(before, after) {
+  return before.length === after.length && after.every((item, index) => item.path === before[index].path && item.thumb === before[index].thumb && item.url === before[index].url);
+}
+function prefetchNeighbours(perPage) {
+  const schedule = window.requestIdleCallback || ((callback) => setTimeout(callback, 150));
+  for (const page of [state.page + 1, state.page - 1]) {
+    if (page < 1 || (page > state.page && !state.hasNext)) continue;
+    schedule(() => prefetchGallery(page, perPage));
   }
 }
 function setStatusQuiet() { $("gallery-count").textContent = `共 ${state.totalItems ?? (state.pageItems || []).length} 张（缓存）`; }
@@ -1317,6 +1356,8 @@ $("hero-remove").onclick = async () => { $("setting-hero-url").value = ""; await
 document.addEventListener("click", (event) => { if (!$("settings-panel").contains(event.target) && !$("account-toggle")?.contains(event.target)) { $("settings-panel").classList.add("hidden"); $("account-toggle")?.setAttribute("aria-expanded", "false"); } });
 $("previous").onclick = () => { state.page -= 1; loadGallery(); };
 $("next").onclick = () => { state.page += 1; loadGallery(); };
+$("page-jump-input").onchange = onPageJump;
+$("page-jump-input").onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); onPageJump(); } };
 
 handleAuthResult();
 loadAccount();

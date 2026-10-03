@@ -63,3 +63,47 @@ test("imageUrl pins to a commit only for a full sha, otherwise falls back to the
   assert.match(imageUrl(env, "images/2026/09/a.webp", settings, "https://evil/@1"), /@main\//);
   assert.match(imageBase(env, {}), /cdn\.jsdelivr\.net\/gh\/me\/image-bed@main$/);
 });
+
+// 用 ?instance= 再导入一份模块，拿到独立的实例内缓存，不干扰上面的静态测试
+const indexFile = async (instance) => import(`../cloud-functions/_lib/history-index.js?instance=${instance}`);
+const indexBody = (records) => {
+  const text = JSON.stringify({ v: 1, count: records.length, items: records });
+  return { content: Buffer.from(text, "utf8").toString("base64"), sha: "a".repeat(40) };
+};
+function fakeGithub(records, calls) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input?.url || input);
+    const method = String(init.method || "GET").toUpperCase();
+    if (url.includes("/app/installations/")) return Response.json({ token: "fake-installation-token" });
+    if (!url.includes("contents/.state/index.json")) return real(input, init);
+    calls.push(method);
+    if (method === "PUT") return Response.json({ commit: { sha: "b".repeat(40) } });
+    return Response.json(indexBody(records));
+  };
+  return () => { globalThis.fetch = real; };
+}
+
+test("readIndex 在实例内只回源一次，写入后立刻作废缓存", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const pem = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey;
+  process.env.GITHUB_APP_PRIVATE_KEY_B64 = Buffer.from(pem, "utf8").toString("base64");
+  const records = [{ p: "images/2026/09/20260901000000-a.webp", t: 1, s: 10 }];
+  const calls = [];
+  const restore = fakeGithub(records, calls);
+  try {
+    const { readIndex, writeIndex } = await indexFile("memo");
+    const first = await readIndex(env);
+    const second = await readIndex(env);
+    assert.deepEqual(calls, ["GET"], "第二次读索引应命中实例内缓存");
+    assert.deepEqual(first.records, records);
+    assert.equal(first.sha, second.sha);
+    await writeIndex(env, [{ p: "images/2026/09/20260901000001-b.webp" }], "chore: test index write");
+    assert.deepEqual(calls, ["GET", "PUT"], "写入应复用缓存里的 sha，不再多读一次");
+    await readIndex(env);
+    assert.deepEqual(calls, ["GET", "PUT", "GET"], "写入完成后缓存必须作废");
+  } finally {
+    restore();
+    delete process.env.GITHUB_APP_PRIVATE_KEY_B64;
+  }
+});
