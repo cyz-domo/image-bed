@@ -171,7 +171,7 @@ async function loadAccount() {
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
       // 上次会话已失效：只切换为未登录界面，不再整页 reload（reload 会吞掉提示且放大故障）
-      renderLoggedOut(loginJustCompleted ? "登录" : "重新登录");
+      renderLoggedOut(hint ? "重新登录" : "登录");
       if (hint) showToast("登录状态已过期，请重新使用 GitHub 登录", true);
     }
   } catch (error) {
