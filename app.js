@@ -138,7 +138,7 @@ function renderLoggedIn(login, avatarUrl) {
   $("upload-cta").classList.add("hidden");
   $("upload-panel").classList.remove("hidden");
   const toggle = $("account-toggle");
-  toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); const opening = panel.classList.contains("hidden"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(opening)); if (opening) { state.settingsOpener = toggle; $("setting-hero-url")?.focus(); } else toggle.focus(); };
+  toggle.onclick = (event) => { event.stopPropagation(); const panel = $("settings-panel"); const opening = panel.classList.contains("hidden"); panel.classList.toggle("hidden"); toggle.setAttribute("aria-expanded", String(opening)); if (opening) { state.settingsOpener = toggle; $("setting-hero-url")?.focus(); loadBuildInfo(); } else toggle.focus(); };
   const accountInfo = $("settings-account-info"); if (accountInfo) accountInfo.textContent = `已以 @${login} 身份登录`;
   $("logout").onclick = async () => {
     const button = $("logout");
@@ -153,6 +153,24 @@ function renderLoggedIn(login, avatarUrl) {
   loadSettings();
   loadQuota();
   if (state.tab === "gallery" && (showingLoginPrompt || !$("gallery").children.length)) { $("gallery-login").classList.add("hidden"); loadGallery(); }
+}
+
+// 构建版本：EdgeOne 部署有几分钟延迟，用它判断线上是不是刚推的那一版
+let buildLoaded = false;
+async function loadBuildInfo() {
+  if (buildLoaded) return;
+  buildLoaded = true;
+  const box = $("settings-build");
+  if (!box) return;
+  try {
+    const response = await fetch(`/version.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const build = await response.json();
+    const time = new Date(build.time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    box.textContent = `构建 ${build.short} · ${time} · ${build.branch}`;
+    box.title = `${build.message || ""}\n内容指纹 ${build.fingerprint}`;
+    box.hidden = false;
+  } catch { /* 版本文件读不到就不占地方 */ }
 }
 
 async function loadAccount() {

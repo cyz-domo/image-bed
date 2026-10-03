@@ -1,4 +1,5 @@
 import { json } from "../_lib/http.js";
+import { BUILD } from "../_lib/version.js";
 
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 const present = (value) => typeof value === "string" && value.length > 0;
@@ -21,5 +22,6 @@ export function onRequest({ env }) {
     PUBLIC_BASE_URL: present(config.PUBLIC_BASE_URL),
   };
   const missing = Object.entries(checks).filter(([, value]) => !value).map(([name]) => name);
-  return json({ ok: missing.length === 0, missing, checks }, missing.length === 0 ? 200 : 503, { "Cache-Control": "no-store" });
+  const { short, time, branch, fingerprint } = BUILD;
+  return json({ ok: missing.length === 0, missing, checks, build: { short, time, branch, fingerprint } }, missing.length === 0 ? 200 : 503, { "Cache-Control": "no-store" });
 }

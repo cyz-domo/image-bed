@@ -161,6 +161,7 @@ h1 { margin:0 0 24px; font-size:clamp(46px,7vw,82px); line-height:1.02; letter-s
 .field-hint { display:block; margin-top:6px; color:var(--muted); font-size:12px; }
 .field-error { display:block; margin-top:6px; font-size:12px; }
 .field-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.build-info { display:block; margin:12px 0 0; color:var(--muted); font-size:11px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; cursor:help; }
 .thumb-tool { display:flex; align-items:center; gap:10px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
 .thumb-check { margin-top:10px; }
 .thumb-list { list-style:none; margin:8px 0 12px; padding:0; display:grid; gap:6px; max-height:220px; overflow:auto; }

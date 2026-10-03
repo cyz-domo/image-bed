@@ -1,0 +1,9 @@
+// 由 scripts/gen-version.mjs 生成，请勿手改：/api/health 用它回答“线上跑的是哪一版”。
+export const BUILD = {
+  "fingerprint": "73e42cac971b",
+  "branch": "dev-edgeone",
+  "sha": "1d46c2bc8e5f7ee6c95a30601d68958ba33bf3e3",
+  "short": "1d46c2b",
+  "time": "2026-10-04T01:27:48+08:00",
+  "message": "feat: check and backfill missing thumbnails from the browser"
+};
