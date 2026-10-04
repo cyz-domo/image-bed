@@ -1,9 +1,9 @@
 // 由 scripts/gen-version.mjs 生成，请勿手改：/api/health 用它回答“线上跑的是哪一版”。
 export const BUILD = {
-  "fingerprint": "09357f145abc",
+  "fingerprint": "bebc56ccd6c4",
   "branch": "dev-edgeone",
-  "sha": "ec700d5b84194992a4ed8fd05c96dc804a525e46",
-  "short": "ec700d5",
-  "time": "2026-10-04T02:20:13+08:00",
-  "message": "perf: serve gallery pages from cache and allow jumping to any page"
+  "sha": "e0e14ba2584b8d7300ee2dbd88cafbbe0880cb97",
+  "short": "e0e14ba",
+  "time": "2026-10-04T13:38:54+08:00",
+  "message": "perf: cut first-paint roundtrips and prewarm neighbouring thumbnails"
 };
