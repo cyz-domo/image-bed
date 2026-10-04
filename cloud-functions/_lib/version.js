@@ -2,8 +2,8 @@
 export const BUILD = {
   "fingerprint": "77631d81f183",
   "branch": "dev-edgeone",
-  "sha": "8b00065e0db92c191a7b4aead97f2658b95acd7e",
-  "short": "8b00065",
-  "time": "2026-10-04T14:35:18+08:00",
-  "message": "security: stop publishing identities and pinned shas from the public repo"
+  "sha": "8a271eae0edac7744472450f18961fc4ae4684bd",
+  "short": "8a271ea",
+  "time": "2026-10-04T16:19:03+08:00",
+  "message": "docs: move deployment steps into a standalone guide"
 };
