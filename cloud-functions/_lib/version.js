@@ -1,9 +1,9 @@
 // 由 scripts/gen-version.mjs 生成，请勿手改：/api/health 用它回答“线上跑的是哪一版”。
 export const BUILD = {
-  "fingerprint": "bebc56ccd6c4",
+  "fingerprint": "77631d81f183",
   "branch": "dev-edgeone",
-  "sha": "a5dbded69565dda4d2f245d7bddcc272f1b1a2c3",
-  "short": "a5dbded",
-  "time": "2026-10-04T13:43:57+08:00",
-  "message": "fix: set asset cache headers through edgeone.json"
+  "sha": "8b00065e0db92c191a7b4aead97f2658b95acd7e",
+  "short": "8b00065",
+  "time": "2026-10-04T14:35:18+08:00",
+  "message": "security: stop publishing identities and pinned shas from the public repo"
 };
