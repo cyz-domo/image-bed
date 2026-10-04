@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { readSession, authUnavailable } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache, invalidateHistoryCache } from "../_lib/state.js";
+import { loadState, updateState, reserveDailyQuota, releaseDailyQuota, writeHistoryCache, readHistoryCache, invalidateHistoryCache, userId } from "../_lib/state.js";
 import { upsertRecords, writeIndex } from "../_lib/history-index.js";
 import { error, json } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
@@ -43,6 +43,8 @@ export async function onRequest({ request, env }) {
     // 确保状态可读（KV/状态文件），再检查当日限额
     let state = await loadState(env).catch(() => null);
     if (!state) { await updateState(() => {}, env); state = await loadState(env); }
+    // 状态文件写在公开仓库里，归属与计数只用不可逆 id
+    const ownerId = await userId(env, session.login);
     // 配额必须由支持原子递增的 KV 预占；不支持时拒绝上传，避免并发绕过上限
     const limit = Number(state.settings?.daily_upload_limit || config.DAILY_UPLOAD_LIMIT || defaultDailyLimit);
     const maxBytes = Math.round(Number(state.settings?.max_file_mb || config.MAX_FILE_SIZE / 1048576 || defaultMaxBytes / 1048576) * 1048576);
@@ -116,7 +118,6 @@ export async function onRequest({ request, env }) {
     }
 
     // 3. 将所有文件通过 Git Data API 打包写入（并发执行网络 I/O，消除超时风险）
-    let uploadedCommitSha = null;
     try {
       // 3.1 准备 fallback 模式下的 state.json Blob 任务
       let stateBlobTask = null;
@@ -125,9 +126,9 @@ export async function onRequest({ request, env }) {
         updatedState.owners = updatedState.owners || {};
         updatedState.daily = updatedState.daily || {};
         for (const item of processedFiles) {
-          updatedState.owners[item.path] = session.login;
+          updatedState.owners[item.path] = ownerId;
         }
-        updatedState.daily[session.login] = { key: new Date().toISOString().slice(0, 10), count: reservation.used };
+        updatedState.daily[ownerId] = { key: new Date().toISOString().slice(0, 10), count: reservation.used };
 
         const stateJsonStr = JSON.stringify(updatedState);
         stateBlobTask = ghApi(env, "git/blobs", {
@@ -209,7 +210,6 @@ export async function onRequest({ request, env }) {
       });
       if (!newCommitRes.ok) throw new Error(`创建 Commit 失败 (${newCommitRes.status})`);
       const newCommitSha = (await newCommitRes.json()).sha;
-      uploadedCommitSha = newCommitSha;
 
       // 3.6 更新 ref 指针
       const updateRefRes = await ghApi(env, "git/refs/heads/main", {
@@ -218,9 +218,9 @@ export async function onRequest({ request, env }) {
       });
       if (!updateRefRes.ok) throw new Error(`更新分支引用失败 (${updateRefRes.status})`);
 
-      // 3.7 把新条目登记进仓库索引（单独一次提交：新 commit sha 只能在图片提交后得知）
+      // 3.7 把新条目登记进仓库索引（图片提交之后单独一次提交：索引要包含本次新增的路径）
       // 失败只影响下次列表是否走全量扫描，不改变本次上传结果
-      const indexRecords = upsertRecords([], processedFiles.map((item) => ({ path: item.path, thumbPath: item.thumbPath || "", bytes: item.bytes, commit: newCommitSha })));
+      const indexRecords = upsertRecords([], processedFiles.map((item) => ({ path: item.path, thumbPath: item.thumbPath || "", bytes: item.bytes })));
       await writeIndex(env, indexRecords, `chore: index ${processedFiles.length === 1 ? processedFiles[0].path.split("/").pop() : `${processedFiles.length} images`}`)
         .then((written) => { if (!written) console.warn("[Upload] 图库索引更新失败，下次列表将回退全量扫描"); })
         .catch((cause) => console.warn("[Upload] 图库索引写入异常:", cause.message));
@@ -233,16 +233,17 @@ export async function onRequest({ request, env }) {
     if (store) {
       await updateState((s) => {
         s.owners = s.owners || {};
-        for (const item of processedFiles) s.owners[item.path] = session.login;
-        s.daily = { ...s.daily, [session.login]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } };
+        for (const item of processedFiles) s.owners[item.path] = ownerId;
+        s.daily = { ...s.daily, [ownerId]: { key: new Date().toISOString().slice(0, 10), count: reservation.used } };
       }, env).catch((cause) => { console.warn("每日配额展示状态同步失败", cause); });
     }
 
     // 5. 刷新历史缓存并构造结果返回
     invalidateHistoryCache();
     const results = processedFiles.map((item) => {
-      const url = imageUrl(env, item.path, state.settings, uploadedCommitSha);
-      const thumbUrl = item.thumbPath ? imageUrl(env, item.thumbPath, state.settings, uploadedCommitSha) : null;
+      // 一律用 @main：钉到 commit 的地址在文件删除后仍返回 200，等于发出去就收不回
+      const url = imageUrl(env, item.path, state.settings);
+      const thumbUrl = item.thumbPath ? imageUrl(env, item.thumbPath, state.settings) : null;
       return {
         path: item.path,
         url,

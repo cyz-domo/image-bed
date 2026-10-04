@@ -1,6 +1,6 @@
 import { ghApi } from "../_lib/github.js";
 import { readSession, isAdminSession } from "../_lib/auth.js";
-import { readHistoryCache, writeHistoryCache, loadState, readMemoryHistory, writeMemoryHistory } from "../_lib/state.js";
+import { readHistoryCache, writeHistoryCache, loadState, readMemoryHistory, writeMemoryHistory, userId, ownerMatches } from "../_lib/state.js";
 import { readIndex, writeIndex, itemsToRecords, recordsToItems, thumbPathOf } from "../_lib/history-index.js";
 import { json, error } from "../_lib/http.js";
 import { imageUrl } from "../_lib/image-url.js";
@@ -63,12 +63,15 @@ export async function onRequest({ request, env }) {
       if (cached && !rebuild && Date.now() - cached.savedAt < KV_CACHE_TTL_MS) { items = cached.items; writeMemoryHistory(items); }
       else { items = await loadItems(config, rebuild); await writeHistoryCache(config, items); writeMemoryHistory(items); }
     }
-    // 每项按记录的 commit 引用生成地址：钉到 commit 时 CDN 给 immutable 长缓存，未知时退回 @main。
-    // 缩略图可能比原图晚提交（存量补图），所以只在自己的 m 存在时才钉，否则退回 @main 避免 404
-    const normalizeItems = (list) => list.map((item) => {
-      const ref = item.commit || "main";
-      return { ...item, partition: item.partition ?? partitionOf(item.path), type: item.type ?? fileTypeOf(item.path), url: imageUrl(config, item.path, settings, ref), ...(item.thumb ? { thumb: imageUrl(config, thumbPathOf(item.path), settings, item.thumbCommit || "main") } : {}) };
-    });
+    // 地址一律用 @main：钉到 commit 的地址在文件从 main 删掉后仍返回 200，
+    // 公开仓库里等于"发出去就永久收不回"，所以这里不做 sha 钉版
+    const normalizeItems = (list) => list.map((item) => ({
+      ...item,
+      partition: item.partition ?? partitionOf(item.path),
+      type: item.type ?? fileTypeOf(item.path),
+      url: imageUrl(config, item.path, settings),
+      ...(item.thumb ? { thumb: imageUrl(config, thumbPathOf(item.path), settings) } : {}),
+    }));
     items = normalizeItems(items);
     // 视图范围与数据隔离：
     // 普通用户：始终只能看明确属于自己的图片
@@ -77,13 +80,15 @@ export async function onRequest({ request, env }) {
     //   - scope="all"：查看全库图片（包含其他用户上传的图片，用于内容审核与维护）
     const owners = currentState.owners || {};
     const isAdmin = isAdminSession(session, env);
+    // 归属在状态文件里是 SESSION_SECRET 派生的不可逆 id（历史数据可能仍是明文 login，ownerMatches 两种都认）
+    const ownerId = await userId(env, session.login);
 
     items = items.map((item) => ({ ...item, owner: owners[item.path] || "" }));
     if (!isAdmin || scope !== "all") {
       if (isAdmin) {
-        items = items.filter((item) => !item.owner || item.owner === session.login);
+        items = items.filter((item) => !item.owner || ownerMatches(item.owner, ownerId, session.login));
       } else {
-        items = items.filter((item) => item.owner && item.owner === session.login);
+        items = items.filter((item) => ownerMatches(item.owner, ownerId, session.login));
       }
     }
     const partitions = [...new Set(items.map((item) => item.partition || "").filter(Boolean))];

@@ -122,6 +122,7 @@ tests/                              Node 内置测试
 | `PUBLIC_BASE_URL` | `https://images.example.com`（OAuth 回调基于它构造） |
 | `GITHUB_OWNER` / `GITHUB_REPO` | 图片仓库，如 `cyz-domo` / `image-bed` |
 | `ALLOWED_GITHUB_LOGIN` | **管理员**的 GitHub 用户名（始终拥有全部权限） |
+| `ALLOWED_USERS` | 其他可登录上传的 GitHub 用户名或公开邮箱，逗号分隔。配置后以它为准，仓库设置里的旧名单当场失效；未配置时仍读站点设置中的「允许用户」 |
 | `MAX_FILE_SIZE` | 上传大小上限（字节），默认 10485760（10 MB） |
 | `DAILY_UPLOAD_LIMIT` | **每用户**每日上传张数上限，默认 100 |
 
@@ -194,6 +195,8 @@ curl -sI https://images.example.com/api/auth/login   # 302 → github.com/login/
 
 1. 管理员（`ALLOWED_GITHUB_LOGIN` 账号）登录后，右上角头像 → 设置 → **用户**；
 2. 输入对方的 **GitHub 用户名**（推荐）或公开邮箱 → 点 **+** → **保存设置**；
+   若已配置 `ALLOWED_USERS`（推荐：图片仓库是 public 的，写在仓库里的名单任何人都能取到），
+   这里只显示当前生效名单，增删用户请到 EdgeOne 控制台改环境变量并重新部署；
 3. 对方访问站点点"使用 GitHub 登录"，授权后即可上传；只能看到自己上传的内容。
 
 ## 踩坑记录（排障时先看这里）

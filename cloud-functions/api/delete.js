@@ -1,6 +1,6 @@
 import { readSession, authUnavailable, isAdminSession } from "../_lib/auth.js";
 import { ghApi } from "../_lib/github.js";
-import { loadState, readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache } from "../_lib/state.js";
+import { loadState, readHistoryCache, writeHistoryCache, updateState, invalidateHistoryCache, userId, ownerMatches } from "../_lib/state.js";
 import { readIndex, dropRecords, indexBlobEntry } from "../_lib/history-index.js";
 import { error, json } from "../_lib/http.js";
 
@@ -82,11 +82,13 @@ export async function onRequest({ request, env }) {
     // 数据隔离：普通用户只能删除自己上传的文件，管理员可删除全部（未记录归属的历史文件仅管理员可删）
     const owners = ((await loadState(env)).owners) || {};
     const isAdmin = isAdminSession(session, env);
+    // 状态里的归属是不可逆 id，比对时同时接受 id 和旧的明文 login，避免历史数据突然"没人拥有"
+    const ownerId = await userId(env, session.login);
     const results = [];
     const deletable = [];
     for (const path of paths) {
       const owner = owners[path] || "";
-      if (!isAdmin && (!owner || owner !== session.login)) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
+      if (!isAdmin && !ownerMatches(owner, ownerId, session.login)) { results.push({ path, ok: false, message: "没有权限删除该文件" }); continue; }
       deletable.push(path);
     }
     // 使用 Git Data API 一次性批量删除

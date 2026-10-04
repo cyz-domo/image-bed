@@ -1,4 +1,4 @@
-import { readSession, clearOauthStateCookie, isAdminSession } from "../../_lib/auth.js";
+import { readSession, clearOauthStateCookie, isAdminSession, allowedLogins, allowlistManagedByEnv } from "../../_lib/auth.js";
 import { loadState, readDailyUsed } from "../../_lib/state.js";
 import { error } from "../../_lib/http.js";
 
@@ -11,11 +11,16 @@ async function bootPayload(session, env) {
   const state = await loadState(env);
   const is_admin = session ? isAdminSession(session, env) : false;
   const limit = Number(state.settings?.daily_upload_limit || config.DAILY_UPLOAD_LIMIT || 100);
+  // readDailyUsed 内部按不可逆 id 计数，状态文件里不留明文用户名
   const used = session ? await readDailyUsed(env, session.login) : 0;
+  const adminLogin = String(config.ALLOWED_GITHUB_LOGIN || "").trim().toLowerCase();
   return {
     is_admin,
     // allowed_users 仅对管理员可见，与 /api/settings 保持一致的过滤
-    settings: is_admin ? { ...(state.settings || {}) } : Object.fromEntries(Object.entries(state.settings || {}).filter(([key]) => key !== "allowed_users")),
+    settings: is_admin
+      ? { ...(state.settings || {}), allowed_users: Array.from(allowedLogins(state, env)).filter((name) => name !== adminLogin) }
+      : Object.fromEntries(Object.entries(state.settings || {}).filter(([key]) => key !== "allowed_users")),
+    ...(is_admin ? { allowed_users_managed_by_env: allowlistManagedByEnv(env) } : {}),
     defaults: { daily_upload_limit: Number(config.DAILY_UPLOAD_LIMIT || 100), max_file_mb: Number(config.MAX_FILE_SIZE || 10485760) / 1048576 },
     ...(session ? { quota: { key: new Date().toISOString().slice(0, 10), limit, used, remaining: Math.max(0, limit - used) } } : {}),
   };

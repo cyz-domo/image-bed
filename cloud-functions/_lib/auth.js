@@ -27,8 +27,21 @@ async function key(env) {
 }
 export async function sessionValue(login, env, avatarUrl = "", email = "") { const sessionId = b64(crypto.getRandomValues(new Uint8Array(12))); const safeAvatar = typeof avatarUrl === "string" && /^https:\/\//.test(avatarUrl) ? avatarUrl : ""; const safeEmail = typeof email === "string" ? email.slice(0, 254) : ""; const payload = b64(encoder.encode(JSON.stringify({ login, avatar_url: safeAvatar, email: safeEmail, sid: sessionId, exp: Date.now() + 86400000 }))); const signature = b64(new Uint8Array(await crypto.subtle.sign("HMAC", await key(env), encoder.encode(payload)))); return `${payload}.${signature}`; }
 
-// 允许名单：环境变量 ALLOWED_GITHUB_LOGIN（管理员）+ 设置中的 allowed_users（用户名或公开邮箱）
-export function allowedLogins(state, env) { const config = runtimeEnv(env); return new Set([config.ALLOWED_GITHUB_LOGIN, ...((state?.settings?.allowed_users) || [])].filter(Boolean).map((value) => String(value).trim().toLowerCase())); }
+// 允许名单：环境变量 ALLOWED_USERS（逗号/空格分隔的 GitHub 用户名或公开邮箱）优先，
+// 配置了就以它为准，仓库里那份旧名单当场失效并被脱敏逻辑删除；
+// 未配置时仍读设置里的 allowed_users，保证现有站点不会因为改动被锁在门外。
+// 管理员始终由 ALLOWED_GITHUB_LOGIN 指定。
+// 名单放环境变量而不是仓库状态文件，是因为仓库 public、状态文件谁能都能取到。
+export function envAllowlist(env) {
+  return String(runtimeEnv(env).ALLOWED_USERS || "").split(/[,\s]+/).map((value) => value.trim().toLowerCase()).filter(Boolean);
+}
+export function allowlistManagedByEnv(env) { return envAllowlist(env).length > 0; }
+export function allowedLogins(state, env) {
+  const config = runtimeEnv(env);
+  const fromEnv = envAllowlist(config);
+  const fromState = fromEnv.length ? [] : (state?.settings?.allowed_users || []);
+  return new Set([config.ALLOWED_GITHUB_LOGIN, ...fromEnv, ...fromState].filter(Boolean).map((value) => String(value).trim().toLowerCase()));
+}
 export function userMatchesAllowlist(user, env, state) { const allowed = allowedLogins(state, env); return [user?.login, user?.email].some((value) => typeof value === "string" && allowed.has(value.trim().toLowerCase())); }
 export function isAdminSession(session, env) { const admin = runtimeEnv(env).ALLOWED_GITHUB_LOGIN; return !!session?.login && !!admin && session.login.toLowerCase() === String(admin).trim().toLowerCase(); }
 export async function readSession(request, env) {

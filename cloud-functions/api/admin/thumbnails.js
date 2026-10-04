@@ -11,7 +11,6 @@ import { partitionOf } from "../../_lib/partition.js";
 const runtimeEnv = (env) => ({ ...(typeof process !== "undefined" ? process.env : {}), ...(env || {}) });
 const encodePath = (path) => encodeURIComponent(path).replace(/%2F/g, "/");
 const uploadPath = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/[\w.-]+\.(?:png|jpe?g|gif|webp)$/i;
-const commitShaOf = (value) => (/^[0-9a-f]{40}$/.test(String(value || "").toLowerCase()) ? String(value).toLowerCase() : null);
 const fail = (code, message, status) => Object.assign(new Error(message), { code, status });
 
 async function scan(env, state) {
@@ -23,7 +22,7 @@ async function scan(env, state) {
     type: "image",
     thumb: thumbPathOf(record.p),
     bytes: Number.isSafeInteger(record.s) ? record.s : null,
-    url: imageUrl(env, record.p, state.settings, record.c),
+    url: imageUrl(env, record.p, state.settings),
   }));
   return { total: indexed.records.length, missing, missingBytes: missing.reduce((sum, item) => sum + (item.bytes || 0), 0) };
 }
@@ -35,18 +34,16 @@ async function register(env, body, state) {
   if (thumbPath !== thumbPathOf(path)) throw fail("THUMB_PATH_INVALID", "缩略图路径与图片不一致", 400);
   const bytes = Number(body.bytes);
   if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 20971520) throw fail("BYTES_INVALID", "文件大小不合法", 400);
-  const thumbCommit = commitShaOf(body.thumb_commit);
-  if (!thumbCommit) throw fail("THUMB_COMMIT_INVALID", "缺少缩略图提交号", 400);
   // 只登记浏览器确实提交成功的缩略图，避免索引指向不存在的文件
   const head = await ghApi(env, `contents/${encodePath(thumbPath)}?ref=main`);
   if (!head.ok) throw fail("THUMB_NOT_FOUND", "仓库里找不到该缩略图", 400);
   const indexed = await readIndex(env).catch(() => null);
-  const existing = (indexed?.records || []).find((record) => record.p === path) || {};
-  const records = upsertRecords(indexed?.records || [], [{ path, thumbPath, bytes, commit: existing.c, thumbCommit }]);
+  // 提交号不再入库：公开仓库里存 sha 等于公开一份"删图也收不回"的地址表
+  const records = upsertRecords(indexed?.records || [], [{ path, thumbPath, bytes }]);
   const written = await writeIndex(env, records, `chore: index thumb ${path.split("/").pop()}`);
   invalidateHistoryCache();
   if (!written) throw fail("INDEX_WRITE_FAILED", "缩略图已提交，但索引更新失败，请稍后重试", 502);
-  return { path, url: imageUrl(env, path, state.settings, existing.c), thumb: imageUrl(env, thumbPath, state.settings, thumbCommit) };
+  return { path, url: imageUrl(env, path, state.settings), thumb: imageUrl(env, thumbPath, state.settings) };
 }
 
 export async function onRequest({ request, env }) {

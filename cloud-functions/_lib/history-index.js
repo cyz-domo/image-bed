@@ -2,15 +2,15 @@ import { ghApi } from "./github.js";
 
 // 图库索引：随上传/删除一起提交进仓库的紧凑清单，让 /api/history 的冷路径
 // 只需读这一个小文件，而不必递归拉整棵 Git tree（成本随仓库总文件数线性增长且会被截断）。
-// 记录字段：p=图片路径，t=存在同名缩略图，s=原图字节数，
-// c=包含该图片的 commit sha，m=包含其缩略图的 commit sha（两者拼成 immutable 的 CDN 地址）
+// 记录字段：p=图片路径，t=存在同名缩略图，s=原图字节数
+// 刻意不记 commit sha：仓库是 public 的，sha 一旦写进这份文件就等于公开了一张
+// “删除也收不回来”的永久地址表（@sha 的 URL 在文件从 main 删掉后仍返回 200）。
+// 图片与缩略图一律走 @main，删图即 404。
 const INDEX_PATH = ".state/index.json";
 const INDEX_LIMIT = 900_000; // contents API 单文件上限 1 MB，留出编码与并发余量
-const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const IMAGE_PATH = /^images\/(?:[^/]+\/)?\d{4}\/\d{2}\/.+$/;
 const fileTypeOf = (path) => (/\.mp4$/i.test(path) ? "video" : "image");
 const thumbPathOf = (path) => `.thumbnails/${path.slice("images/".length)}`;
-const commitOf = (value) => (typeof value === "string" && COMMIT_SHA.test(value) ? value.toLowerCase() : undefined);
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -23,6 +23,7 @@ export function isValidIndexRecord(record) {
 }
 
 // 清洗 + 去重（后写覆盖前写）+ 按路径倒序，保证索引顺序即"最新优先"的近似顺序
+// 顺带把早期版本写入的 c/m（commit sha）抹掉：公开仓库里不该留着“删图也收不回”的永久地址
 export function normalizeRecords(records) {
   const byPath = new Map();
   for (const record of records || []) {
@@ -30,9 +31,6 @@ export function normalizeRecords(records) {
     const clean = { p: record.p };
     if (record.t === 1 || record.t === true) clean.t = 1;
     if (Number.isSafeInteger(record.s) && record.s >= 0) clean.s = record.s;
-    const commit = commitOf(record.c); const thumbCommit = commitOf(record.m);
-    if (commit) clean.c = commit;
-    if (thumbCommit) clean.m = thumbCommit;
     byPath.set(record.p, clean);
   }
   return [...byPath.values()].sort((a, b) => (a.p < b.p ? 1 : a.p > b.p ? -1 : 0));
@@ -53,21 +51,16 @@ export function parseIndex(text) {
   } catch { return null; }
 }
 
-// items: [{ path, thumbPath | thumb?, bytes?, commit?, thumbCommit? }]
-// 同批上传的图片与缩略图落在同一个 commit，未显式给 thumbCommit 时沿用 commit
+// items: [{ path, thumbPath | thumb?, bytes? }]
+// commit 一类的字段即使调用方传了也会被 normalizeRecords 抹掉，索引里只留可撤回的路径信息
 export function upsertRecords(records, items) {
   const merged = normalizeRecords(records);
   const byPath = new Map(merged.map((record) => [record.p, record]));
   for (const item of items || []) {
     if (!item?.path || !IMAGE_PATH.test(item.path)) continue;
     const record = byPath.get(item.path) || { p: item.path };
-    const hasThumb = Boolean(item.thumbPath || item.thumb);
-    const commit = commitOf(item.commit);
-    if (hasThumb) record.t = 1;
+    if (Boolean(item.thumbPath || item.thumb)) record.t = 1;
     if (Number.isSafeInteger(item.bytes) && item.bytes >= 0) record.s = item.bytes;
-    if (commit) record.c = commit;
-    const thumbCommit = commitOf(item.thumbCommit) || (hasThumb ? commit : undefined);
-    if (record.t === 1 && thumbCommit) record.m = thumbCommit;
     byPath.set(item.path, record);
   }
   return normalizeRecords([...byPath.values()]);
@@ -84,8 +77,6 @@ export function recordsToItems(records) {
     type: fileTypeOf(record.p),
     ...(record.t === 1 ? { thumb: thumbPathOf(record.p) } : {}),
     ...(Number.isSafeInteger(record.s) ? { bytes: record.s } : {}),
-    ...(record.c ? { commit: record.c } : {}),
-    ...(record.m ? { thumbCommit: record.m } : {}),
   }));
 }
 

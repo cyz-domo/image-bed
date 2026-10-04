@@ -9,14 +9,21 @@
       "source": "/app.js",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=120, stale-while-revalidate=600" },
-        { "key": "X-Asset-Cache", "value": "v2" }
+        { "key": "X-Asset-Cache", "value": "v3" }
       ]
     },
     {
       "source": "/styles.css",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=600, stale-while-revalidate=3600" },
-        { "key": "X-Asset-Cache", "value": "v2" }
+        { "key": "X-Asset-Cache", "value": "v3" }
+      ]
+    },
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=120, stale-while-revalidate=600" },
+        { "key": "X-Asset-Cache", "value": "v3" }
       ]
     }
   ]

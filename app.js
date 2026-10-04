@@ -1,4 +1,4 @@
-const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", galleryScope: "mine", partitions: [], partitionConfig: {}, isAdmin: false, allowedUsers: [] };
+const state = { page: 1, hasNext: false, tab: "home", heroUrl: null, loggedIn: false, login: null, galleryRequest: 0, heroRequest: 0, uploading: false, lightboxOpener: null, lightboxIndex: 0, lightboxPage: 1, galleryPartition: "all", galleryScope: "mine", partitions: [], partitionConfig: {}, isAdmin: false, allowedUsers: [], allowlistLocked: false };
 try { const savedScope = localStorage.getItem("image-bed.gallery-scope"); if (savedScope === "all" || savedScope === "mine") state.galleryScope = savedScope; } catch {}
 const galleryPrefetches = new Map();
 const GALLERY_CACHE_PREFIX = "image-bed.gallery.v2.";
@@ -178,7 +178,9 @@ async function loadBuildInfo() {
   const box = $("settings-build");
   if (!box) return;
   try {
-    const response = await fetch(`/version.json?ts=${Date.now()}`, { cache: "no-store" });
+    // 走 edgeone.json 下发的浏览器缓存（max-age=120）：Pages 源站首字节要 2–6 秒，
+    // 每次打开面板都打穿缓存的话，这行小字会卡半天。判断"这次部署生效没"仍用部署日志与 /api/health
+    const response = await fetch("/version.json");
     if (!response.ok) return;
     const build = await response.json();
     const time = new Date(build.time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -343,6 +345,8 @@ function applySettingsPayload(data) {
     renderDropdown(scopeDropdown, SCOPE_OPTIONS, state.galleryScope || "mine");
   }
   state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
+  // 名单改由环境变量提供时（公开仓库里不再存名单），面板切成只读并告诉管理员去哪改
+  state.allowlistLocked = data.allowed_users_managed_by_env === true;
   renderAllowedUsers();
   const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
   const statsTab = $("tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
@@ -364,6 +368,14 @@ function applySettingsPayload(data) {
 function renderAllowedUsers() {
   const list = $("allowed-users-list");
   if (!list) return;
+  const addRow = $("add-user-row");
+  if (addRow) addRow.hidden = state.allowlistLocked === true;
+  const hint = list.parentElement.querySelector("[data-allowlist-hint]");
+  if (hint) hint.hidden = state.allowlistLocked !== true;
+  if (state.allowlistLocked === true) {
+    list.innerHTML = (state.allowedUsers || []).length ? state.allowedUsers.map((name) => `<div class="allowed-user-row"><span class="partition-name">${escapeHtml(name)}</span></div>`).join("") : '<p class="field-hint">环境变量里还没有其他用户，目前只有管理员可上传。</p>';
+    return;
+  }
   list.innerHTML = (state.allowedUsers || []).length ? (state.allowedUsers || []).map((name, index) => `<div class="allowed-user-row"><span class="partition-name">${escapeHtml(name)}</span><button type="button" class="link-button" data-remove-user="${index}" aria-label="移除 ${escapeHtml(name)}">移除</button></div>`).join("") : '<p class="field-hint">暂无其他用户。添加后对方用 GitHub 登录即可上传。</p>';
   list.querySelectorAll("[data-remove-user]").forEach((button) => button.onclick = () => { state.allowedUsers.splice(Number(button.dataset.removeUser), 1); renderAllowedUsers(); });
 }
@@ -397,7 +409,10 @@ async function saveSettings() {
   if (!Number.isFinite(maxFileMb) || maxFileMb < 1 || maxFileMb > 20) { storageError.textContent = "单张大小上限需为 1–20 MB（jsDelivr 分发上限）"; storageError.hidden = false; showSettingsTab("storage"); saveButton.disabled = false; return; }
   try {
     const previousHeroUrl = state.heroUrl;
-    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi(), allowed_users: state.allowedUsers }) });
+    const payload = { hero_background_url: heroUrl, hero_blur: heroBlur, accelerator_base_url: acceleratorUrl, daily_upload_limit: dailyLimit, max_file_mb: maxFileMb, partition_config: readPartitionConfigFromUi() };
+    // 名单由环境变量管理时不发送该字段，否则后端会回 ALLOWLIST_MANAGED_BY_ENV
+    if (!state.allowlistLocked) payload.allowed_users = state.allowedUsers;
+    const data = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (previousHeroUrl && previousHeroUrl !== data.settings.hero_background_url) heroCacheDelete(previousHeroUrl);
     await loadHero(data.settings.hero_background_url || null); invalidateGalleryCache(); showToast("设置已保存");
     state.partitionConfig = data.settings.partition_config || state.partitionConfig; renderPartitionConfig();

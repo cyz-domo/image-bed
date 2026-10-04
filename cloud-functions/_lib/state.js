@@ -35,6 +35,33 @@ function b64Encode(text) { const bytes = encoder.encode(text); let result = ""; 
 
 export function freshState() { return { revoked: [], daily: {}, settings: {}, links: {}, owners: {} }; }
 
+/* ---------- 身份脱敏 ----------
+   状态文件写在公开仓库里，知道路径的人就能取到，所以"谁传了哪张图""谁今天传了几张"
+   不该以明文 GitHub 用户名落盘。落盘前折算成 SESSION_SECRET 派生的不可逆 id：
+   配额与归属判定照常工作（比对双方都换算），对外只是一串十六进制。
+   注意：轮换 SESSION_SECRET 会让历史归属认不出来，需要连同旧值一起迁移。 */
+const USER_ID = /^[0-9a-f]{12}$/;
+const STORAGE_ONLY_DAILY_KEYS = new Set(["key", "count"]); // 早期全站计数器，已无人读取，脱敏时顺手清掉
+const hex = (bytes) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+export async function userId(env, login) {
+  const name = String(login || "").trim().toLowerCase();
+  if (!name) return "";
+  if (USER_ID.test(name)) return name;
+  const secret = runtimeEnv(env).SESSION_SECRET;
+  if (!secret) throw new Error("SESSION_SECRET 未配置，无法折算用户标识");
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(name))).subarray(0, 6));
+}
+
+// 兼容尚未脱敏的历史值：文件里可能仍是明文 login，写过一次之后就只认 id
+export function ownerMatches(stored, id, login) {
+  const value = String(stored || "").trim();
+  if (!value) return false;
+  if (value.toLowerCase() === String(id || "").toLowerCase()) return true;
+  return value.toLowerCase() === String(login || "").trim().toLowerCase();
+}
+
 /* ---------- GitHub 仓库状态文件（兜底存储） ---------- */
 const gh = { sha: null, data: null, loadedAt: 0 };
 const GH_TTL_MS = 15000;
@@ -63,16 +90,50 @@ async function ghSave(state, env) {
 
 /* ---------- 统一状态读写 ---------- */
 const kvMemo = { data: null, loadedAt: 0 };
+
+// 读出的状态一律先过这里脱敏：owners/daily 里的明文 login 折算成 id、昨天的计数丢弃、
+// 已被环境变量接管的 allowed_users 删除。改动随下一次状态写入自然落到仓库。
+export async function sanitizeState(state, env) {
+  const plain = new Set();
+  for (const value of Object.values(state.owners || {})) {
+    const name = String(value || "").trim();
+    if (name && !USER_ID.test(name.toLowerCase())) plain.add(name);
+  }
+  for (const name of Object.keys(state.daily || {})) {
+    if (!STORAGE_ONLY_DAILY_KEYS.has(name) && !USER_ID.test(name.toLowerCase())) plain.add(name);
+  }
+  if (!plain.size && !runtimeEnv(env).ALLOWED_USERS && !state.daily?.key && !state.daily?.count) return state;
+  const hashed = new Map();
+  for (const name of plain) hashed.set(name.toLowerCase(), await userId(env, name));
+  const toId = (value) => (USER_ID.test(String(value || "").toLowerCase()) ? String(value).toLowerCase() : hashed.get(String(value || "").trim().toLowerCase()));
+
+  const owners = {};
+  for (const [path, value] of Object.entries(state.owners || {})) {
+    const id = toId(value);
+    if (id) owners[path] = id;
+  }
+  const today = todayKey();
+  const daily = {};
+  for (const [name, entry] of Object.entries(state.daily || {})) {
+    if (STORAGE_ONLY_DAILY_KEYS.has(name) || !entry || entry.key !== today) continue;
+    const id = toId(name);
+    if (id) daily[id] = { key: entry.key, count: Number(entry.count || 0) };
+  }
+  const settings = { ...(state.settings || {}) };
+  if (runtimeEnv(env).ALLOWED_USERS) delete settings.allowed_users;
+  return { ...state, owners, daily, settings };
+}
+
 export async function loadState(env) {
   const store = kv(env);
   if (store) {
     if (kvMemo.data && Date.now() - kvMemo.loadedAt < 15000) return kvMemo.data;
     const raw = await store.get(STATE_KEY, { type: "json" });
-    kvMemo.data = raw ? { ...freshState(), ...raw } : freshState();
+    kvMemo.data = await sanitizeState(raw ? { ...freshState(), ...raw } : freshState(), env);
     kvMemo.loadedAt = Date.now();
     return kvMemo.data;
   }
-  return ghLoad(env);
+  return sanitizeState(await ghLoad(env), env);
 }
 
 // read -> mutate -> save 持实例内锁；KV 最终一致（其他节点最多延迟 60 秒），单人图床可接受
@@ -95,8 +156,10 @@ export async function updateState(mutator, env) {
   return run;
 }
 
-// 每日配额按用户独立计数：ownerId 为登录名；limit 为每用户每日上限
-export async function reserveDailyQuota(env, limit, ownerId = "default") {
+// 每日配额按用户独立计数：这里收 GitHub login（也可能是已脱敏的 id，userId 对两者幂等），
+// 落盘只用不可逆 id；limit 为每用户每日上限
+export async function reserveDailyQuota(env, limit, owner = "default") {
+  const ownerId = await userId(env, owner);
   const store = kv(env);
   const increment = typeof store?.incr === "function" ? store.incr : store?.increment;
   if (!store || typeof increment !== "function") {
@@ -115,7 +178,8 @@ export async function reserveDailyQuota(env, limit, ownerId = "default") {
   return { allowed: true, used, remaining: limit - used, key };
 }
 
-export async function readDailyUsed(env, ownerId = "default") {
+export async function readDailyUsed(env, owner = "default") {
+  const ownerId = await userId(env, owner);
   const store = kv(env);
   const key = `daily_uploads:${ownerId}:${todayKey()}`;
   if (store) { try { const raw = await store.get(key); const used = Number(raw ?? 0); return Number.isFinite(used) ? used : 0; } catch { return 0; } }

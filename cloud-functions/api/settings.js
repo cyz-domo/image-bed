@@ -1,4 +1,4 @@
-import { readSession, authUnavailable, isAdminSession } from "../_lib/auth.js";
+import { readSession, authUnavailable, isAdminSession, allowedLogins, allowlistManagedByEnv } from "../_lib/auth.js";
 import { loadState, updateState, setSetting, invalidateHistoryCache } from "../_lib/state.js";
 import { error, json } from "../_lib/http.js";
 import { validPartitionConfig } from "../_lib/partition.js";
@@ -20,10 +20,16 @@ export async function onRequest({ request, env }) {
     if (request.method === "GET") {
       // allowed_users 仅对管理员可见，避免公开接口泄露用户名单
       let session = null; try { session = await readSession(request, env); } catch { session = null; }
-      const settingsView = isAdminSession(session, env) ? { ...(state.settings || {}) } : Object.fromEntries(Object.entries(state.settings || {}).filter(([key]) => key !== "allowed_users"));
+      const isAdmin = isAdminSession(session, env);
+      const managedByEnv = allowlistManagedByEnv(config);
+      const settingsView = isAdmin
+        ? { ...(state.settings || {}), allowed_users: Array.from(allowedLogins(state, env)).filter((name) => name !== String(config.ALLOWED_GITHUB_LOGIN || "").trim().toLowerCase()) }
+        : Object.fromEntries(Object.entries(state.settings || {}).filter(([key]) => key !== "allowed_users"));
       return json({
-        is_admin: isAdminSession(session, env),
+        is_admin: isAdmin,
         settings: settingsView,
+        // 名单改由环境变量提供时前端把编辑器切成只读，避免管理员改了以为生效
+        allowed_users_managed_by_env: isAdmin && managedByEnv,
         defaults: { daily_upload_limit: Number(config.DAILY_UPLOAD_LIMIT || 100), max_file_mb: Number(config.MAX_FILE_SIZE || 10485760) / 1048576 },
       });
     }
@@ -38,7 +44,10 @@ export async function onRequest({ request, env }) {
       if (key === "hero_background_url") { if (typeof value !== "string" || !validHeroUrl(value)) return error("SETTING_INVALID", "背景图地址必须是 https:// 开头的地址", 400); }
       else if (key === "accelerator_base_url") { if (typeof value !== "string" || !validAccelerator(value)) return error("SETTING_INVALID", "图片加速域名必须是 https:// 开头的域名根地址", 400); }
       else if (key === "partition_config") { if (!validPartitionConfig(value)) return error("SETTING_INVALID", "分区压缩配置格式不正确", 400); }
-      else if (key === "allowed_users") { if (!Array.isArray(value) || value.length > 20 || !value.every((item) => typeof item === "string" && item.trim().length >= 1 && item.trim().length <= 254)) return error("SETTING_INVALID", "允许用户列表格式不正确（最多 20 个，每项 1–254 字符）", 400); }
+      else if (key === "allowed_users") {
+        if (allowlistManagedByEnv(config)) return error("ALLOWLIST_MANAGED_BY_ENV", "允许名单已改由环境变量 ALLOWED_USERS 管理，请在 EdgeOne 控制台修改后重新部署", 409);
+        if (!Array.isArray(value) || value.length > 20 || !value.every((item) => typeof item === "string" && item.trim().length >= 1 && item.trim().length <= 254)) return error("SETTING_INVALID", "允许用户列表格式不正确（最多 20 个，每项 1–254 字符）", 400);
+      }
       else if (toNumber(value, LIMITS[key]) === null) return error("SETTING_INVALID", `${LABELS[key]}需在 ${LIMITS[key][0]} 到 ${LIMITS[key][1]} 之间`, 400);
     }
     const normalizedEntries = entries.map(([key, value]) => {

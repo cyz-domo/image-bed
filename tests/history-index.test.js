@@ -13,10 +13,11 @@ test("normalizeRecords drops bad rows, dedupes by path and sorts newest first", 
     { p: "README.md" },
     { p: "images/2026/09/b.webp", s: 5 },
     { p: "images/2026/07/c.mp4", t: 0 },
-    { p: "images/2026/07/d.webp", c: "not-a-sha" },
+    { p: "images/2026/07/d.webp", c: SHA },
   ]);
   assert.deepEqual(records.map((record) => record.p), ["images/2026/09/b.webp", "images/2026/08/a.webp", "images/2026/07/d.webp", "images/2026/07/c.mp4"]);
   assert.deepEqual(records[0], { p: "images/2026/09/b.webp", s: 5 });
+  // 公开仓库里的索引不留 commit sha：留着等于公开一份"删图也收不回"的永久地址表
   assert.deepEqual(records[2], { p: "images/2026/07/d.webp" });
   assert.deepEqual(records[3], { p: "images/2026/07/c.mp4" });
 });
@@ -30,17 +31,18 @@ test("serializeIndex and parseIndex round-trip, and reject records over the size
   assert.throws(() => serializeIndex(oversized), (error) => error.code === "INDEX_TOO_LARGE");
 });
 
-test("upsertRecords keeps image and thumbnail commits, defaulting the thumbnail to the image commit", () => {
+test("upsertRecords keeps thumb flags and sizes but refuses to store commit shas", () => {
   const records = upsertRecords([{ p: "images/2026/08/old.webp", t: 1, m: SHA }], [
     { path: "images/2026/09/new.webp", thumbPath: ".thumbnails/2026/09/new.webp", bytes: 2048, commit: SHA },
     { path: "images/2026/09/late.webp", thumbPath: ".thumbnails/2026/09/late.webp", commit: SHA, thumbCommit: "0".repeat(40) },
     { path: "secrets/2026/09/nope.webp", commit: SHA },
   ]);
   const byPath = new Map(records.map((record) => [record.p, record]));
-  assert.deepEqual(byPath.get("images/2026/09/new.webp"), { p: "images/2026/09/new.webp", t: 1, s: 2048, c: SHA, m: SHA });
-  assert.deepEqual(byPath.get("images/2026/09/late.webp"), { p: "images/2026/09/late.webp", t: 1, c: SHA, m: "0".repeat(40) });
+  assert.deepEqual(byPath.get("images/2026/09/new.webp"), { p: "images/2026/09/new.webp", t: 1, s: 2048 });
+  assert.deepEqual(byPath.get("images/2026/09/late.webp"), { p: "images/2026/09/late.webp", t: 1 });
   assert.equal(byPath.has("secrets/2026/09/nope.webp"), false);
-  assert.deepEqual(byPath.get("images/2026/08/old.webp"), { p: "images/2026/08/old.webp", t: 1, m: SHA });
+  // 旧记录里的 m 也在同一次清洗里被抹掉，下一次写索引就不再带 sha
+  assert.deepEqual(byPath.get("images/2026/08/old.webp"), { p: "images/2026/08/old.webp", t: 1 });
 });
 
 test("dropRecords removes deleted paths and itemsToRecords round-trips history items", () => {
@@ -51,7 +53,7 @@ test("dropRecords removes deleted paths and itemsToRecords round-trips history i
   const records = itemsToRecords(items);
   const kept = recordsToItems(dropRecords(records, ["images/2026/09/a.webp"]));
   assert.deepEqual(kept, [{ path: "images/2026/09/b.mp4", type: "video", bytes: 100 }]);
-  assert.deepEqual(recordsToItems(records).find((item) => item.path === "images/2026/09/a.webp"), { path: "images/2026/09/a.webp", type: "image", thumb: ".thumbnails/2026/09/a.webp", bytes: 9, commit: SHA, thumbCommit: SHA });
+  assert.deepEqual(recordsToItems(records).find((item) => item.path === "images/2026/09/a.webp"), { path: "images/2026/09/a.webp", type: "image", thumb: ".thumbnails/2026/09/a.webp", bytes: 9 });
   assert.deepEqual(records.map((record) => record.p), ["images/2026/09/b.mp4", "images/2026/09/a.webp"]);
 });
 
