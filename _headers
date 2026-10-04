@@ -1,8 +1,13 @@
 # EdgeOne Pages 自定义响应头（部署时按路径匹配）
-# 前端源码类文件每次部署都可能变化，禁止缓存，避免拿到旧版本
+# 入口页每次部署都可能变化，保持 no-cache；app.js / styles.css 的改动也只随部署发生，
+# 让它们真的能缓存住（源站首字节要 2~6 秒，回源一次就把整站的等待都赔进去了），
+# 代价是部署后最多 2 分钟才有人拿到新版——设置里显示的构建版本用来判断这件事。
+# X-Asset-Cache 只是给 deploy-check 用的标记：看到它说明这个文件确实被采纳了。
 /index.html
   Cache-Control: no-cache
 /app.js
-  Cache-Control: no-cache
+  Cache-Control: public, max-age=120, stale-while-revalidate=600
+  X-Asset-Cache: v2
 /styles.css
-  Cache-Control: no-cache
+  Cache-Control: public, max-age=600, stale-while-revalidate=3600
+  X-Asset-Cache: v2

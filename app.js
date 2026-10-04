@@ -6,11 +6,23 @@ const GALLERY_CACHE_TTL = 5 * 60 * 1000;
 const GALLERY_CACHE_LIMIT = 24;
 // 命中缓存后 60 秒内不再打网络：翻页时那一次 /api/history 请求是主要延迟来源
 const GALLERY_FRESH_MS = 60 * 1000;
+const WARM_THUMB_LIMIT = 24;
 let activeHeroObjectUrl = null;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (text) => String(text ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function safeRemoteUrl(value) {
   try { const url = new URL(String(value || ""), location.origin); return url.protocol === "https:" ? url.href : ""; } catch { return ""; }
+}
+
+// 图片域名的 DNS+TLS 握手约 0.5 秒，提前在设置落地时就热好；index.html 里还有一条静态 preconnect 兜住首屏
+function preconnectOrigin(value) {
+  try {
+    const origin = new URL(String(value || "")).origin;
+    if (origin === location.origin || document.head.querySelector(`link[rel=preconnect][data-host="${origin}"]`)) return;
+    const link = document.createElement("link");
+    link.rel = "preconnect"; link.href = origin; link.dataset.host = origin;
+    document.head.append(link);
+  } catch { /* 非法地址就不预热 */ }
 }
 
 async function api(path, options) {
@@ -126,7 +138,7 @@ function notifySessionExpired() {
   showToast("登录状态已过期，请重新使用 GitHub 登录", true);
 }
 
-function renderLoggedIn(login, avatarUrl) {
+function renderLoggedIn(login, avatarUrl, boot = null) {
   state.loggedIn = true;
   state.login = login;
   sessionExpiredNotified = false;
@@ -152,8 +164,9 @@ function renderLoggedIn(login, avatarUrl) {
     renderLoggedOut();
   };
   if (loginJustCompleted) { loginJustCompleted = false; showToast(`GitHub 登录成功，当前账号 @${login}`); }
-  loadSettings();
-  loadQuota();
+  // 设置与背景图由 loadAccount 随 /api/auth/me 一次性落地，这里只补额度显示
+  if (boot?.quota) updateQuotaDisplay(boot.quota.remaining, boot.quota.limit);
+  else if (!boot?.pending) loadQuota();
   if (state.tab === "gallery" && (showingLoginPrompt || !$("gallery").children.length)) { $("gallery-login").classList.add("hidden"); loadGallery(); }
 }
 
@@ -180,13 +193,15 @@ async function loadAccount() {
   // 乐观渲染：按上次会话提示立即展示登录态，后台再向服务端确认
   let hint = null;
   try { hint = JSON.parse(localStorage.getItem(SESSION_CACHE_KEY) || "null"); } catch {}
-  if (hint?.login) renderLoggedIn(hint.login, hint.avatarUrl);
+  if (hint?.login) renderLoggedIn(hint.login, hint.avatarUrl, { pending: true });
   else account.innerHTML = '<span class="account-loading" role="status">检查登录状态…</span>';
   try {
     const data = await api("/api/auth/me");
+    // 设置（含背景图、限额）对访客和管理员都随这一条响应到达，首屏只此一次站点状态请求
+    if (data.settings) applySettingsPayload(data);
     if (data.authenticated) {
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ login: data.login, avatarUrl: data.avatar_url }));
-      renderLoggedIn(data.login, data.avatar_url);
+      renderLoggedIn(data.login, data.avatar_url, data);
       refreshPartitions(); // 登录确认后轻量拉取分区列表，首页下拉立即可用
     } else {
       localStorage.removeItem(SESSION_CACHE_KEY);
@@ -195,6 +210,7 @@ async function loadAccount() {
       if (hint) showToast("登录状态已过期，请重新使用 GitHub 登录", true);
     }
   } catch (error) {
+    loadSettings(); // me 没带回设置（状态存储故障）时补拉一次，背景图和限额不至于整页消失
     if (hint) {
       renderLoggedOut("重新登录");
       showToast(`登录状态暂时无法确认：${error.message}`, true);
@@ -312,32 +328,37 @@ async function loadHero(urlOverride) {
 }
 
 async function loadSettings() {
-  try {
-    const data = await api("/api/settings");
-    const s = data.settings || {};
-    $("setting-hero-url").value = s.hero_background_url || "";
-    state.isAdmin = data.is_admin === true;
-    const scopeDropdown = $("gallery-scope");
-    if (scopeDropdown) {
-      scopeDropdown.classList.toggle("hidden", !state.isAdmin);
-      renderDropdown(scopeDropdown, SCOPE_OPTIONS, state.galleryScope || "mine");
-    }
-    state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
-    renderAllowedUsers();
-    const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
-    const statsTab = $("tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
-    const appearanceTab = $("settings-tab-appearance"); if (appearanceTab) appearanceTab.classList.toggle("hidden", !state.isAdmin);
-    const storageTab = $("settings-tab-storage"); if (storageTab) storageTab.classList.toggle("hidden", !state.isAdmin);
-    if (!state.isAdmin) showSettingsTab("partitions");
-    state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
-    const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
-    $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
-    $("setting-accelerator-url").value = s.accelerator_base_url || "";
-    $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
-    $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
-    const hint = `PNG、JPG、GIF、WebP、MP4，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
-    $("dropzone-hint").textContent = hint;
-  } catch { /* 设置读取失败不阻断页面 */ }
+  try { applySettingsPayload(await api("/api/settings")); }
+  catch { /* 设置读取失败不阻断页面 */ }
+}
+
+// 设置面板与首屏共用一套渲染：数据可能来自 /api/settings，也可能来自 /api/auth/me 的附带字段
+function applySettingsPayload(data) {
+  const s = data.settings || {};
+  $("setting-hero-url").value = s.hero_background_url || "";
+  state.isAdmin = data.is_admin === true;
+  const scopeDropdown = $("gallery-scope");
+  if (scopeDropdown) {
+    scopeDropdown.classList.toggle("hidden", !state.isAdmin);
+    renderDropdown(scopeDropdown, SCOPE_OPTIONS, state.galleryScope || "mine");
+  }
+  state.allowedUsers = state.isAdmin && Array.isArray(s.allowed_users) ? [...s.allowed_users] : [];
+  renderAllowedUsers();
+  const usersTab = $("settings-tab-users"); if (usersTab) usersTab.classList.toggle("hidden", !state.isAdmin);
+  const statsTab = $("tab-stats"); if (statsTab) statsTab.classList.toggle("hidden", !state.isAdmin);
+  const appearanceTab = $("settings-tab-appearance"); if (appearanceTab) appearanceTab.classList.toggle("hidden", !state.isAdmin);
+  const storageTab = $("settings-tab-storage"); if (storageTab) storageTab.classList.toggle("hidden", !state.isAdmin);
+  if (!state.isAdmin) showSettingsTab("partitions");
+  state.partitionConfig = s.partition_config || {}; renderPartitionConfig();
+  const savedBlur = Number.isFinite(Number(s.hero_blur)) && s.hero_blur !== undefined && s.hero_blur !== null ? Number(s.hero_blur) : 20;
+  $("setting-hero-blur").value = savedBlur; $("hero-blur-value").textContent = savedBlur; applyHeroBlur(savedBlur);
+  loadHero(s.hero_background_url || null); // 背景图随设置一起落地，不再单独打一次 /api/settings
+  $("setting-accelerator-url").value = s.accelerator_base_url || "";
+  preconnectOrigin(s.accelerator_base_url);
+  $("setting-daily-limit").value = s.daily_upload_limit ?? data.defaults.daily_upload_limit;
+  $("setting-max-size").value = s.max_file_mb ?? data.defaults.max_file_mb;
+  const hint = `PNG、JPG、GIF、WebP、MP4，单张最大 ${Math.round(s.max_file_mb ?? data.defaults.max_file_mb)} MB`;
+  $("dropzone-hint").textContent = hint;
 }
 
 function renderAllowedUsers() {
@@ -1145,8 +1166,16 @@ function onPageJump() {
 function invalidateGalleryCache() { try { Object.keys(localStorage).filter((key) => key.startsWith(GALLERY_CACHE_PREFIX) || key.startsWith("image-bed.gallery-page1.")).forEach((key) => localStorage.removeItem(key)); } catch {} galleryPrefetches.clear(); }
 async function prefetchGallery(page, perPage) {
   const key = galleryCacheKey(page, perPage); if (readGalleryCache(page, perPage) || galleryPrefetches.has(key)) return;
-  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => writeGalleryCache(page, perPage, data.items, data.has_next, data.total)).catch(() => {}).finally(() => galleryPrefetches.delete(key));
+  const task = api(`/api/history?page=${page}&per_page=${perPage}${partitionQueryParam()}`).then((data) => { writeGalleryCache(page, perPage, data.items, data.has_next, data.total); warmThumbs(data.items); }).catch(() => {}).finally(() => galleryPrefetches.delete(key));
   galleryPrefetches.set(key, task); await task;
+}
+// 邻页缩略图一并预热：边缘首次未命中一张要 1.5 秒上下，先把字节拉进浏览器缓存，翻页时图片就是热的
+function warmThumbs(items) {
+  if (document.hidden) return;
+  const urls = (items || []).map((item) => safeRemoteUrl(item.thumb)).filter(Boolean).slice(0, WARM_THUMB_LIMIT);
+  if (!urls.length) return;
+  const schedule = window.requestIdleCallback || ((callback) => setTimeout(callback, 400));
+  schedule(() => urls.forEach((url) => { const image = new Image(); image.decoding = "async"; image.src = url; }));
 }
 
 async function loadGallery() {
@@ -1361,7 +1390,6 @@ $("page-jump-input").onkeydown = (event) => { if (event.key === "Enter") { event
 
 handleAuthResult();
 loadAccount();
-loadHero();
 initThemeToggle();
 try { const savedPartition = localStorage.getItem("image-bed.gallery-partition"); if (savedPartition) { state.galleryPartition = savedPartition; renderDropdown($("gallery-partition"), [["all", "全部分区"], ["default", "默认图床"]], state.galleryPartition); } } catch {}
 try { const savedPartitions = JSON.parse(localStorage.getItem("image-bed.partitions") || "null"); if (Array.isArray(savedPartitions)) state.partitions = savedPartitions; } catch {}

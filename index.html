@@ -28,7 +28,9 @@
     <link rel="icon" href="favicon.ico" type="image/x-icon" />
     <link rel="alternate icon" href="favicon.ico" sizes="any" />
     <title>image-bed · 简单上传，随处使用</title>
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <!-- 图片用 <img> 加载（非 CORS 请求），preconnect 不带 crossorigin 才能被复用；域名与 accelerator_base_url 保持一致，改动后 app.js 会按设置补一条 -->
+    <link rel="preconnect" href="https://cdn-jsdelivr.6143443.xyz" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
