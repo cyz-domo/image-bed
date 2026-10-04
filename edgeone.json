@@ -1,3 +1,23 @@
 {
-  "devCommand": "npm run dev"
+  "devCommand": "npm run dev",
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/app.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=120, stale-while-revalidate=600" },
+        { "key": "X-Asset-Cache", "value": "v2" }
+      ]
+    },
+    {
+      "source": "/styles.css",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=600, stale-while-revalidate=3600" },
+        { "key": "X-Asset-Cache", "value": "v2" }
+      ]
+    }
+  ]
 }
