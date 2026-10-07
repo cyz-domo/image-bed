@@ -1,8 +1,8 @@
 {
-  "fingerprint": "77631d81f183",
+  "fingerprint": "2672345dc8db",
   "branch": "dev-edgeone",
-  "sha": "8a271eae0edac7744472450f18961fc4ae4684bd",
-  "short": "8a271ea",
-  "time": "2026-10-04T16:19:03+08:00",
-  "message": "docs: move deployment steps into a standalone guide"
+  "sha": "a06b8914f2c65d8555f972766409538a17d6e368",
+  "short": "a06b891",
+  "time": "2026-10-08T00:39:11+08:00",
+  "message": "fix: build accelerator links in GitHub raw path form"
 }
