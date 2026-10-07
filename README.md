@@ -119,7 +119,9 @@ tests/                              Node 内置测试
 |---|---|---|
 | EdgeOne 函数请求体 | 6 MB | 更大的文件必须由浏览器直传 GitHub API |
 | jsDelivr 单文件分发 | 20 MB | 超限文件存得进仓库，但 CDN 链接取不到 |
+| jsDelivr `/gh/` 仓库体积 | 50 MB | 超限后各节点随机返回 403 "Package size exceeded…"，只能换分发源 |
 | EdgeOne 单个环境变量值 | 1000 字符 | GitHub App 私钥的 base64 要拆成三段 |
+| jsDelivr `/gh/` 仓库体积 | 50 MB | 超限后各节点随机返回 403 "Package size exceeded…"，本站因此回源 GitHub raw |
 | 未匹配到的路径 | 回落 `index.html`，仍是 HTTP 200 | 判断接口是否存在不能只看状态码 |
 | 静态资源自定义响应头 | 只认 `edgeone.json` 的 `headers` | `_headers` 文件不被 Pages 采纳 |
 
@@ -179,11 +181,19 @@ bash upload-image.sh /path/to/image.png [more.png ...]
 
 ## 链接格式
 
+配置了加速域名（回源 GitHub raw）时：
+
+```text
+https://<加速域名>/<owner>/<repo>/main/images/YYYY/MM/<file>.webp
+```
+
+未配置加速域名时走 jsDelivr 官方形态：
+
 ```text
 https://cdn.jsdelivr.net/gh/<owner>/<repo>@main/images/YYYY/MM/<file>.webp
 ```
 
-配置了加速域名时，域名部分替换为加速域名，其余路径一致。
+两种形态由 `cloud-functions/_lib/image-url.js` 一处决定，URL 不落库（状态与索引只存仓库路径），所以换分发源只需改这一个函数。注意**加速域名必须按 raw 的原生路径回源**，把 jsDelivr 的 `/gh/…@ref/` 形态直接透传给 `raw.githubusercontent.com` 会全部 404。
 
 ## 注意
 

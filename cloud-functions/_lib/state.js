@@ -1,4 +1,5 @@
 import { ghApi } from "./github.js";
+import { normalizeCdnUrl } from "./image-url.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -91,9 +92,13 @@ async function ghSave(state, env) {
 /* ---------- 统一状态读写 ---------- */
 const kvMemo = { data: null, loadedAt: 0 };
 
-// 读出的状态一律先过这里脱敏：owners/daily 里的明文 login 折算成 id、昨天的计数丢弃、
-// 已被环境变量接管的 allowed_users 删除。改动随下一次状态写入自然落到仓库。
+/* 读出的状态一律先过这里脱敏：owners/daily 里的明文 login 折算成 id、昨天的计数丢弃、
+   已被环境变量接管的 allowed_users 删除。改动随下一次状态写入自然落到仓库。 */
 export async function sanitizeState(state, env) {
+  const settings = { ...(state.settings || {}) };
+  // 背景图是绝对链接，加速器换回源形态后会失效，读时改写、随下次写入落回仓库
+  if (settings.hero_background_url) settings.hero_background_url = normalizeCdnUrl(settings.hero_background_url, env, settings);
+  if (runtimeEnv(env).ALLOWED_USERS) delete settings.allowed_users;
   const plain = new Set();
   for (const value of Object.values(state.owners || {})) {
     const name = String(value || "").trim();
@@ -102,7 +107,10 @@ export async function sanitizeState(state, env) {
   for (const name of Object.keys(state.daily || {})) {
     if (!STORAGE_ONLY_DAILY_KEYS.has(name) && !USER_ID.test(name.toLowerCase())) plain.add(name);
   }
-  if (!plain.size && !runtimeEnv(env).ALLOWED_USERS && !state.daily?.key && !state.daily?.count) return state;
+  const unchanged = !plain.size && !state.daily?.key && !state.daily?.count
+    && settings.hero_background_url === state.settings?.hero_background_url
+    && "allowed_users" in settings === "allowed_users" in (state.settings || {});
+  if (unchanged) return state;
   const hashed = new Map();
   for (const name of plain) hashed.set(name.toLowerCase(), await userId(env, name));
   const toId = (value) => (USER_ID.test(String(value || "").toLowerCase()) ? String(value).toLowerCase() : hashed.get(String(value || "").trim().toLowerCase()));
@@ -119,8 +127,6 @@ export async function sanitizeState(state, env) {
     const id = toId(name);
     if (id) daily[id] = { key: entry.key, count: Number(entry.count || 0) };
   }
-  const settings = { ...(state.settings || {}) };
-  if (runtimeEnv(env).ALLOWED_USERS) delete settings.allowed_users;
   return { ...state, owners, daily, settings };
 }
 

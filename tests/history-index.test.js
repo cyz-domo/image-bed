@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeRecords, serializeIndex, parseIndex, upsertRecords, dropRecords, recordsToItems, itemsToRecords } from "../cloud-functions/_lib/history-index.js";
-import { imageUrl, imageBase } from "../cloud-functions/_lib/image-url.js";
+import { imageUrl, imageBase, normalizeCdnUrl } from "../cloud-functions/_lib/image-url.js";
 
 const SHA = "793595df1a2867785755e628be39123e537f350e";
 const env = { GITHUB_OWNER: "me", GITHUB_REPO: "image-bed" };
@@ -57,13 +57,30 @@ test("dropRecords removes deleted paths and itemsToRecords round-trips history i
   assert.deepEqual(records.map((record) => record.p), ["images/2026/09/b.mp4", "images/2026/09/a.webp"]);
 });
 
-test("imageUrl pins to a commit only for a full sha, otherwise falls back to the branch", () => {
+test("加速器链接走 GitHub raw 的原生形态，ref 非法时落回分支名", () => {
   const settings = { accelerator_base_url: "https://cdn.example" };
-  assert.equal(imageUrl(env, "images/2026/09/测试/a.webp", settings, SHA), `https://cdn.example/gh/me/image-bed@${SHA}/images/2026/09/%E6%B5%8B%E8%AF%95/a.webp`);
-  assert.match(imageUrl(env, "images/2026/09/a.webp", settings, "deadbeef"), /@main\/images\/2026\/09\/a\.webp$/);
-  assert.match(imageUrl(env, "images/2026/09/a.webp", settings, "main"), /@main\//);
-  assert.match(imageUrl(env, "images/2026/09/a.webp", settings, "https://evil/@1"), /@main\//);
+  assert.equal(imageUrl(env, "images/2026/09/测试/a.webp", settings, SHA), `https://cdn.example/me/image-bed/${SHA}/images/2026/09/%E6%B5%8B%E8%AF%95/a.webp`);
+  assert.equal(imageUrl(env, "images/2026/09/a.webp", settings, "deadbeef"), "https://cdn.example/me/image-bed/main/images/2026/09/a.webp");
+  assert.equal(imageUrl(env, "images/2026/09/a.webp", settings, "https://evil/@1"), "https://cdn.example/me/image-bed/main/images/2026/09/a.webp");
+  // 没配加速域名时仍走 jsDelivr 的 /gh/ 形态（小仓库可用，且是官方默认分发）
   assert.match(imageBase(env, {}), /cdn\.jsdelivr\.net\/gh\/me\/image-bed@main$/);
+});
+
+test("normalizeCdnUrl 把状态里残留的 jsDelivr 形态链接改写成 raw 形态", () => {
+  const settings = { accelerator_base_url: "https://cdn.example" };
+  assert.equal(
+    normalizeCdnUrl("https://cdn.example/gh/me/image-bed@main/images/2026/09/a.webp", env, settings),
+    "https://cdn.example/me/image-bed/main/images/2026/09/a.webp",
+  );
+  assert.equal(
+    normalizeCdnUrl(`https://cdn.example/gh/me/image-bed@${SHA}/.thumbnails/2026/09/a.webp`, env, settings),
+    "https://cdn.example/me/image-bed/main/.thumbnails/2026/09/a.webp",
+  );
+  // 已经是新形态、别人的域名、没配加速器，都不该被改写
+  assert.equal(normalizeCdnUrl("https://cdn.example/me/image-bed/main/images/a.webp", env, settings), "https://cdn.example/me/image-bed/main/images/a.webp");
+  assert.equal(normalizeCdnUrl("https://cdn.example/gh/other/repo@main/images/a.webp", env, settings), "https://cdn.example/gh/other/repo@main/images/a.webp");
+  assert.equal(normalizeCdnUrl("https://cdn.jsdelivr.net/gh/me/image-bed@main/images/a.webp", env, settings), "https://cdn.jsdelivr.net/gh/me/image-bed@main/images/a.webp");
+  assert.equal(normalizeCdnUrl("https://cdn.example/gh/me/image-bed@main/images/a.webp", env, {}), "https://cdn.example/gh/me/image-bed@main/images/a.webp");
 });
 
 // 用 ?instance= 再导入一份模块，拿到独立的实例内缓存，不干扰上面的静态测试

@@ -61,6 +61,19 @@ test("sanitizeState 折 id、清过期计数，并在环境变量接管后删掉
   restore();
 });
 
+test("sanitizeState 顺带把背景图的旧形态链接改写成 raw 形态", async () => {
+  const mod = await freshModule("hero");
+  const env = envFor();
+  const legacyUrl = "https://cdn.example/gh/cyz-domo/image-bed@main/images/2026/10/a.webp";
+  const state = { revoked: [], daily: {}, links: {}, owners: {}, settings: { accelerator_base_url: "https://cdn.example", hero_background_url: legacyUrl } };
+  const clean = await mod.sanitizeState(structuredClone(state), env);
+  assert.equal(clean.settings.hero_background_url, "https://cdn.example/cyz-domo/image-bed/main/images/2026/10/a.webp");
+  const again = await mod.sanitizeState(structuredClone(clean), env);
+  assert.equal(again.settings.hero_background_url, clean.settings.hero_background_url, "新形态不再被二次改写");
+  const untouched = structuredClone(clean);
+  assert.equal(await mod.sanitizeState(untouched, env), untouched, "无可脱敏项时原样返回同一个对象");
+});
+
 test("允许名单：配置了 ALLOWED_USERS 就以环境变量为准，否则回退设置", async () => {
   const restore = stubState(PLAIN_STATE);
   const mod = await freshModule("allowlist");
