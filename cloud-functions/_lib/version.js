@@ -2,8 +2,8 @@
 export const BUILD = {
   "fingerprint": "2672345dc8db",
   "branch": "dev-edgeone",
-  "sha": "a06b8914f2c65d8555f972766409538a17d6e368",
-  "short": "a06b891",
-  "time": "2026-10-08T00:39:11+08:00",
-  "message": "fix: build accelerator links in GitHub raw path form"
+  "sha": "2746c752f69918368f0e518c4d8b00320ef997a9",
+  "short": "2746c75",
+  "time": "2026-10-08T01:10:56+08:00",
+  "message": "docs: spell out the TTL override and rule re-key a raw origin needs"
 };
